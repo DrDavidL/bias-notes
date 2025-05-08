@@ -14,6 +14,9 @@ def check_password(widget_key_suffix="") -> bool:
     Args:
         widget_key_suffix: A suffix to add to the widget key to avoid duplicate widget IDs
     """
+    # Get the password from secrets
+    password_key = st.secrets["app_password"]
+    
     # Initialize session state variables
     if "password_correct" not in st.session_state:
         st.session_state.password_correct = False
@@ -30,9 +33,10 @@ def check_password(widget_key_suffix="") -> bool:
     def password_entered() -> None:
         """Callback function when password is entered."""
         entered_password = st.session_state[password_key_name]
-        if entered_password == st.secrets["app_password"]:
+        if entered_password == password_key:
             st.session_state.password_correct = True
             st.session_state.login_attempts = 0
+            # No need to delete the password from session state as we're using unique keys
         else:
             st.session_state.password_correct = False
             st.session_state.login_attempts += 1
