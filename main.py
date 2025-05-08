@@ -6,8 +6,58 @@ from typing import List, Tuple
 # Import Azure GPT connector
 from langchain_openai import AzureChatOpenAI
 
+def check_password(widget_key_suffix="") -> bool:
+    """
+    Check if the entered password is correct and manage login state.
+    Also resets the app when a user successfully logs in.
+    
+    Args:
+        widget_key_suffix: A suffix to add to the widget key to avoid duplicate widget IDs
+    """
+    # Initialize session state variables
+    if "password_correct" not in st.session_state:
+        st.session_state.password_correct = False
+    if "login_attempts" not in st.session_state:
+        st.session_state.login_attempts = 0
+
+    # If already authenticated, return True
+    if st.session_state.password_correct:
+        return True
+
+    # Create a unique key for this password input
+    password_key_name = f"password_{widget_key_suffix}"
+    
+    def password_entered() -> None:
+        """Callback function when password is entered."""
+        entered_password = st.session_state[password_key_name]
+        if entered_password == st.secrets["app_password"]:
+            st.session_state.password_correct = True
+            st.session_state.login_attempts = 0
+        else:
+            st.session_state.password_correct = False
+            st.session_state.login_attempts += 1
+
+    # Check if password is correct
+    if not st.session_state.password_correct:
+        st.text_input(
+            "Password", type="password", on_change=password_entered, key=password_key_name
+        )
+
+        if st.session_state.login_attempts > 0:
+            st.error(
+                f"😕 Password incorrect. Attempts: {st.session_state.login_attempts}"
+            )
+
+        st.write(
+            "*Please contact David Liebovitz, MD if you need an updated password for access.*"
+        )
+        return False
+
+    return True
+
 # --- HEADER ---
-st.title("Landsburg Society Research Award - AI and Stigmatizing Language")
+if check_password():
+    st.title("Landsburg Society Research Award - AI and Stigmatizing Language")
 st.subheader("Drs. Asantewaa Ture & David Liebovitz, Northwestern University")
 st.markdown("""
 **Background:**
