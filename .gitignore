@@ -205,3 +205,4 @@ secret.*
 *secrets*.json
 config.yaml
  
+.aider*
