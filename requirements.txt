@@ -23,7 +23,7 @@ jsonschema-specifications==2025.4.1
 langchain==0.3.25
 langchain-core==0.3.59
 langchain-openai==0.3.16
-langchain-text-splitters==0.3.8
+langchain-text-splitters==1.0.0a1
 langsmith==0.3.42
 markupsafe==3.0.2
 narwhals==1.38.2
