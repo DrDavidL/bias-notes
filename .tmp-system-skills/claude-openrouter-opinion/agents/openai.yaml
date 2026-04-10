@@ -1,0 +1,4 @@
+interface:
+  display_name: "Claude OpenRouter Opinion"
+  short_description: "Ask Claude via OpenRouter for a second opinion"
+  default_prompt: "Use $claude-openrouter-opinion to ask Claude via OpenRouter for an independent opinion before deciding."

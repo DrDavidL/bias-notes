@@ -206,3 +206,8 @@ secret.*
 config.yaml
  
 .aider*
+*.ipynb_checkpoints/
+*.ipynb
+*.xlsx
+*.csv
+*.xls
