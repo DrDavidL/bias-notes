@@ -139,7 +139,9 @@ def build_request(args: argparse.Namespace, payload: dict) -> urllib.request.Req
         headers["X-OpenRouter-Title"] = args.site_name
 
     data = json.dumps(payload).encode("utf-8")
-    return urllib.request.Request(OPENROUTER_URL, data=data, headers=headers, method="POST")
+    return urllib.request.Request(
+        OPENROUTER_URL, data=data, headers=headers, method="POST"
+    )
 
 
 def extract_text(response_data: dict) -> str:
