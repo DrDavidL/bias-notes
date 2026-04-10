@@ -1,6 +1,11 @@
 """Run bias detection on 100 randomly selected notes using the updated prompt."""
 
-import os, re, json, time, random, importlib.util
+import os
+import re
+import json
+import time
+import random
+import importlib.util
 from datetime import datetime
 from typing import List, Dict
 import pandas as pd
@@ -19,21 +24,21 @@ client = AzureOpenAI(
 )
 
 # ---------- CONFIG ----------
-INPUT_CSV          = "/Users/dli989/Library/CloudStorage/OneDrive-NorthwesternUniversity/all_500_cleaned.csv"
-OUTPUT_DIR         = "/Users/dli989/Documents/GitHub/bias-notes/output"
-OUTPUT_PREFIX      = "bias_flagged_updated"
-PROMPT_PATH        = "/Users/dli989/Documents/GitHub/bias-notes/bias_detection_prompt.py"
+INPUT_CSV = "/Users/dli989/Library/CloudStorage/OneDrive-NorthwesternUniversity/all_500_cleaned.csv"
+OUTPUT_DIR = "/Users/dli989/Documents/GitHub/bias-notes/output"
+OUTPUT_PREFIX = "bias_flagged_updated"
+PROMPT_PATH = "/Users/dli989/Documents/GitHub/bias-notes/bias_detection_prompt.py"
 
-N_ROWS_TO_PROCESS  = 100
-RANDOM_SELECTION   = True
-RANDOM_SEED        = 42          # reproducible selection
+N_ROWS_TO_PROCESS = 100
+RANDOM_SELECTION = True
+RANDOM_SEED = 42  # reproducible selection
 
-CHUNK_CHAR_LIMIT   = 2800
-MAX_RETRIES        = 5
-SLEEP_BASE_SEC     = 1.4
-TEMPERATURE        = 0
-PARALLEL_CALLS     = 4
-GLOBAL_MAX_CALLS   = 8
+CHUNK_CHAR_LIMIT = 2800
+MAX_RETRIES = 5
+SLEEP_BASE_SEC = 1.4
+TEMPERATURE = 0
+PARALLEL_CALLS = 4
+GLOBAL_MAX_CALLS = 8
 
 MODEL_FOR_API = os.getenv("AZURE_DEPLOYMENT") or os.getenv("AZURE_MODEL_NAME")
 if not MODEL_FOR_API:
@@ -41,13 +46,16 @@ if not MODEL_FOR_API:
 
 _LLM_SEMAPHORE = Semaphore(GLOBAL_MAX_CALLS)
 
+
 # ---------- OUTPUT PATH ----------
 def generate_output_path(output_dir: str, prefix: str) -> str:
     os.makedirs(output_dir, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     return os.path.join(output_dir, f"{prefix}_{timestamp}.csv")
 
+
 OUTPUT_CSV = generate_output_path(OUTPUT_DIR, OUTPUT_PREFIX)
+
 
 # ---------- PROMPT LOADING ----------
 def load_prompt_text(prompt_path: str) -> str:
@@ -63,6 +71,7 @@ def load_prompt_text(prompt_path: str) -> str:
     with open(prompt_path, "r", encoding="utf-8") as f:
         return f.read()
 
+
 PROMPT_TEXT = load_prompt_text(PROMPT_PATH)
 
 # ---------- SENTENCE CHUNKING ----------
@@ -70,6 +79,7 @@ _SENT_SPLIT_RE = re.compile(
     r"(?<=\S[.!?])\s+(?=[\"'([{]*[A-Z0-9])",
     re.VERBOSE,
 )
+
 
 def chunk_by_sentences(text: str, max_chars: int = CHUNK_CHAR_LIMIT) -> List[str]:
     if not isinstance(text, str) or not text.strip():
@@ -99,6 +109,7 @@ def chunk_by_sentences(text: str, max_chars: int = CHUNK_CHAR_LIMIT) -> List[str
         chunks.append(" ".join(cur).strip())
     return chunks
 
+
 # ---------- PROMPT INJECTION ----------
 _PLACEHOLDER_PATTERNS = [
     r"<<<\s*\{PASTE THE NOTE TEXT/CHUNK HERE\}\s*>>>",
@@ -107,24 +118,31 @@ _PLACEHOLDER_PATTERNS = [
     r"<<<\s*\{CHUNK\}\s*>>>",
 ]
 
+
 def inject_chunk_into_prompt(prompt_text: str, chunk_text: str) -> str:
     for pat in _PLACEHOLDER_PATTERNS:
         if re.search(pat, prompt_text):
+
             def _repl(_m):
                 if "<<<" in pat and ">>>" in pat:
                     return f"<<<\n{chunk_text}\n>>>"
                 return chunk_text
+
             return re.sub(pat, _repl, prompt_text, count=1)
-    block_re = re.compile(r"(INPUT\s+NOTE\s+CHUNK.*?<<<)([\s\S]*?)(>>>)([\s\S]*)", re.IGNORECASE)
+    block_re = re.compile(
+        r"(INPUT\s+NOTE\s+CHUNK.*?<<<)([\s\S]*?)(>>>)([\s\S]*)", re.IGNORECASE
+    )
     m = block_re.search(prompt_text)
     if m:
         return m.group(1) + "\n" + chunk_text + "\n" + m.group(3) + m.group(4)
     return f"{prompt_text.rstrip()}\n\nINPUT NOTE CHUNK\n<<<\n{chunk_text}\n>>>"
 
+
 # ---------- LLM CALL ----------
 def _sleep_backoff(attempt: int) -> None:
     delay = SLEEP_BASE_SEC * (2 ** (attempt - 1)) * random.uniform(0.7, 1.3)
     time.sleep(delay)
+
 
 def call_model_on_chunk(chunk_text: str) -> Dict[str, List[str]]:
     user_content = inject_chunk_into_prompt(PROMPT_TEXT, chunk_text)
@@ -161,12 +179,14 @@ def call_model_on_chunk(chunk_text: str) -> Dict[str, List[str]]:
                     if key in data and isinstance(data[key], list):
                         result[key] = [
                             x.strip() if isinstance(x, str) else str(x).strip()
-                            for x in data[key] if x
+                            for x in data[key]
+                            if x
                         ]
             elif isinstance(data, list):
                 result["likely"] = [
                     x.strip() if isinstance(x, str) else str(x).strip()
-                    for x in data if x
+                    for x in data
+                    if x
                 ]
             return result
         except Exception as e:
@@ -174,6 +194,7 @@ def call_model_on_chunk(chunk_text: str) -> Dict[str, List[str]]:
             _sleep_backoff(attempt)
     print(f"[WARN] Failed chunk after {MAX_RETRIES} attempts: {last_err}")
     return {"possible": [], "likely": []}
+
 
 # ---------- PER-NOTE AGGREGATION ----------
 def analyze_note_text(full_text: str) -> Dict[str, List[str]]:
@@ -186,7 +207,9 @@ def analyze_note_text(full_text: str) -> Dict[str, List[str]]:
     if PARALLEL_CALLS > 1 and len(chunks) > 1:
         results_by_idx: Dict[int, Dict[str, List[str]]] = {}
         with concurrent.futures.ThreadPoolExecutor(max_workers=PARALLEL_CALLS) as ex:
-            future_map = {ex.submit(call_model_on_chunk, ch): idx for idx, ch in enumerate(chunks)}
+            future_map = {
+                ex.submit(call_model_on_chunk, ch): idx for idx, ch in enumerate(chunks)
+            }
             for fut in concurrent.futures.as_completed(future_map):
                 idx = future_map[fut]
                 try:
@@ -220,6 +243,7 @@ def analyze_note_text(full_text: str) -> Dict[str, List[str]]:
                 seen_likely.add(p)
                 aggregated["likely"].append(p)
     return aggregated
+
 
 # ---------- POST-PROCESSING: PHYSIOLOGIC FALSE POSITIVE FILTER ----------
 # These patterns match objective physical exam / physiologic findings that should
@@ -295,12 +319,13 @@ _KEEP_PATTERNS = re.compile(
 # Patterns that are documentation artifacts, not bias
 _DOCUMENTATION_ARTIFACTS = re.compile(
     r"(?:"
-    r"tobacco\s+smoker\s*:\s*no"        # screening field showing negative
-    r"|smoking\s+status\s*:\s*"          # screening field label
+    r"tobacco\s+smoker\s*:\s*no"  # screening field showing negative
+    r"|smoking\s+status\s*:\s*"  # screening field label
     r"|mood\s+and\s+affect\s+congruent"  # clinical observation, not normative
     r")",
     re.IGNORECASE,
 )
+
 
 def is_physiologic_false_positive(term: str) -> bool:
     """Return True if the term is an objective physiologic finding, not a bias flag."""
@@ -319,12 +344,16 @@ def is_physiologic_false_positive(term: str) -> bool:
         return True
     return False
 
+
 def postprocess_results(result: Dict[str, List[str]]) -> Dict[str, List[str]]:
     """Remove physiologic false positives from LLM results."""
     return {
-        "possible": [t for t in result["possible"] if not is_physiologic_false_positive(t)],
+        "possible": [
+            t for t in result["possible"] if not is_physiologic_false_positive(t)
+        ],
         "likely": [t for t in result["likely"] if not is_physiologic_false_positive(t)],
     }
+
 
 # ---------- MAIN ----------
 if __name__ == "__main__":
@@ -336,22 +365,24 @@ if __name__ == "__main__":
     n_to_process = min(N_ROWS_TO_PROCESS, total_rows)
 
     if RANDOM_SELECTION and n_to_process < total_rows:
-        df = df_full.sample(n=n_to_process, random_state=RANDOM_SEED).reset_index(drop=True)
+        df = df_full.sample(n=n_to_process, random_state=RANDOM_SEED).reset_index(
+            drop=True
+        )
         selection_mode = f"random sample (seed={RANDOM_SEED})"
     else:
         df = df_full.head(n_to_process).reset_index(drop=True)
         selection_mode = "first N rows" if n_to_process < total_rows else "all rows"
 
-    print(f"{'='*60}")
-    print(f"BIAS DETECTION — UPDATED PROMPT")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
+    print("BIAS DETECTION — UPDATED PROMPT")
+    print(f"{'=' * 60}")
     print(f"Input file: {INPUT_CSV}")
     print(f"Total rows in file: {total_rows}")
     print(f"Rows to process: {n_to_process} ({selection_mode})")
     print(f"Output: {OUTPUT_CSV}")
     print(f"Model: {MODEL_FOR_API}")
     print(f"PARALLEL_CALLS={PARALLEL_CALLS}")
-    print(f"{'='*60}\n")
+    print(f"{'=' * 60}\n")
 
     df["Possible_Biased_Terms"] = "[]"
     df["Likely_Biased_Terms"] = "[]"
@@ -359,20 +390,26 @@ if __name__ == "__main__":
     start_time = time.time()
     for i, (row_idx, txt) in enumerate(df["note_text"].items(), start=1):
         result = postprocess_results(analyze_note_text(txt))
-        df.at[row_idx, "Possible_Biased_Terms"] = json.dumps(result["possible"], ensure_ascii=False)
-        df.at[row_idx, "Likely_Biased_Terms"] = json.dumps(result["likely"], ensure_ascii=False)
+        df.at[row_idx, "Possible_Biased_Terms"] = json.dumps(
+            result["possible"], ensure_ascii=False
+        )
+        df.at[row_idx, "Likely_Biased_Terms"] = json.dumps(
+            result["likely"], ensure_ascii=False
+        )
         if i % 10 == 0 or i == n_to_process:
             elapsed = time.time() - start_time
             rate = i / elapsed if elapsed > 0 else 0
             remaining = (n_to_process - i) / rate if rate > 0 else 0
-            print(f"  Processed {i}/{n_to_process} notes... ({elapsed:.1f}s elapsed, ~{remaining:.0f}s remaining)")
+            print(
+                f"  Processed {i}/{n_to_process} notes... ({elapsed:.1f}s elapsed, ~{remaining:.0f}s remaining)"
+            )
 
     df.to_csv(OUTPUT_CSV, index=False)
     total_time = time.time() - start_time
 
-    print(f"\n{'='*60}")
-    print(f"COMPLETE")
-    print(f"{'='*60}")
+    print(f"\n{'=' * 60}")
+    print("COMPLETE")
+    print(f"{'=' * 60}")
     print(f"Results saved to: {OUTPUT_CSV}")
     print(f"Total notes: {len(df)}")
-    print(f"Total time: {total_time:.1f}s ({total_time/len(df):.1f}s per note)")
+    print(f"Total time: {total_time:.1f}s ({total_time / len(df):.1f}s per note)")
