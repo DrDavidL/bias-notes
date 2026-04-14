@@ -205,6 +205,9 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     output_csv = generate_output_path(output_dir, args.output_prefix)
+    chunk_failure_log_path = (
+        output_csv[:-4] + "_chunk_failures.jsonl" if output_csv.lower().endswith(".csv") else output_csv + "_chunk_failures.jsonl"
+    )
     pipeline = AzureBiasPipeline(
         create_client(),
         AzureBiasPipelineConfig(
@@ -217,6 +220,7 @@ def main(argv: list[str] | None = None) -> int:
             parallel_calls=DEFAULT_PARALLEL_CALLS,
             global_max_calls=DEFAULT_GLOBAL_MAX_CALLS,
             cache_path=args.cache_path,
+            chunk_failure_log_path=chunk_failure_log_path,
             enable_second_pass_adjudication=True,
         ),
     )
@@ -230,6 +234,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Selection mode: {args.selection}")
     print(f"Random seed: {args.seed}")
     print(f"Output: {output_csv}")
+    print(f"Chunk failure log: {chunk_failure_log_path}")
     print(f"Model: {model_for_api}")
     print(f"PARALLEL_CALLS={DEFAULT_PARALLEL_CALLS}")
     if args.skip_notebook_check:
@@ -252,9 +257,11 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Reviewer output: {output_paths['reviewer_path']}")
     print(f"Analysis-ready output: {output_paths['analysis_path']}")
     print(f"Reviewer adjudication output: {output_paths['adjudication_path']}")
+    print(f"Chunk failure log: {chunk_failure_log_path}")
     print(f"Total notes: {len(processed)}")
     print(f"Possible bias flags kept: {int(processed['Possible_Bias_Count'].sum())}")
     print(f"Likely bias flags kept: {int(processed['Likely_Bias_Count'].sum())}")
+    print(f"Notes with chunk failures: {int((processed['Chunk_Failure_Count'] > 0).sum())}")
     print(f"Total time: {total_time:.1f}s ({total_time / len(processed):.1f}s per note)")
     if not args.skip_notebook_check:
         print("Notebook hygiene check: passed after run")

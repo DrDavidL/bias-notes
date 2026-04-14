@@ -1,10 +1,12 @@
 import tempfile
 import unittest
+from types import SimpleNamespace
 
 import pandas as pd
 from openai import AzureOpenAI
 
 from bias_pipeline import (
+    _parse_model_response_text,
     AzureBiasPipeline,
     AzureBiasPipelineConfig,
     build_analysis_ready_dataframe,
@@ -16,6 +18,14 @@ from bias_pipeline import (
 
 
 class BiasPipelineTests(unittest.TestCase):
+    @staticmethod
+    def _build_fake_client(handler):
+        class FakeCompletions:
+            def create(self, **kwargs):
+                return handler(kwargs)
+
+        return SimpleNamespace(chat=SimpleNamespace(completions=FakeCompletions()))
+
     class StubPipeline(AzureBiasPipeline):
         def __init__(self, cache_path=None):
             super().__init__(
@@ -58,6 +68,92 @@ class BiasPipelineTests(unittest.TestCase):
 
         self.assertEqual(filtered["possible"], [{"term": "obese", "categories": ["weight-based identity label"]}])
         self.assertEqual(filtered["likely"], [{"term": "difficult patient", "categories": ["difficult-patient framing"]}])
+
+    def test_parse_model_response_text_salvages_first_json_object(self):
+        parsed = _parse_model_response_text(
+            '{"possible":[{"term":"obese","categories":["weight-based identity label"]}],"likely":[]} trailing text'
+        )
+
+        self.assertEqual(
+            parsed,
+            {"possible": [{"term": "obese", "categories": ["weight-based identity label"]}], "likely": []},
+        )
+
+    def test_call_model_on_chunk_prefers_structured_outputs(self):
+        captured_kwargs = []
+
+        def handler(kwargs):
+            captured_kwargs.append(kwargs)
+            return SimpleNamespace(
+                choices=[
+                    SimpleNamespace(
+                        message=SimpleNamespace(
+                            content='{"possible":[],"likely":[{"term":"difficult patient","categories":["difficult-patient framing"]}]}'
+                        )
+                    )
+                ]
+            )
+
+        pipeline = AzureBiasPipeline(
+            self._build_fake_client(handler),
+            AzureBiasPipelineConfig(
+                prompt_path="bias_detection_prompt.py",
+                model_for_api="test-model",
+                cache_chunk_responses=False,
+                enable_second_pass_adjudication=False,
+            ),
+        )
+
+        result = pipeline.call_model_on_chunk("This is a difficult patient.", chunk_index=0)
+
+        self.assertEqual(
+            result["likely"],
+            [{"term": "difficult patient", "categories": ["difficult-patient framing"]}],
+        )
+        self.assertEqual(captured_kwargs[0]["response_format"]["type"], "json_schema")
+        self.assertTrue(captured_kwargs[0]["response_format"]["json_schema"]["strict"])
+
+    def test_call_model_on_chunk_falls_back_when_structured_outputs_unsupported(self):
+        captured_kwargs = []
+
+        def handler(kwargs):
+            captured_kwargs.append(kwargs)
+            if "response_format" in kwargs:
+                raise ValueError("Invalid parameter: response_format")
+            return SimpleNamespace(
+                choices=[
+                    SimpleNamespace(
+                        message=SimpleNamespace(
+                            content='{"possible":[],"likely":[{"term":"difficult patient","categories":["difficult-patient framing"]}]}'
+                        )
+                    )
+                ]
+            )
+
+        pipeline = AzureBiasPipeline(
+            self._build_fake_client(handler),
+            AzureBiasPipelineConfig(
+                prompt_path="bias_detection_prompt.py",
+                model_for_api="test-model",
+                cache_chunk_responses=False,
+                enable_second_pass_adjudication=False,
+            ),
+        )
+
+        first_result = pipeline.call_model_on_chunk("This is a difficult patient.", chunk_index=0)
+        second_result = pipeline.call_model_on_chunk("Another difficult patient.", chunk_index=1)
+
+        self.assertEqual(
+            first_result["likely"],
+            [{"term": "difficult patient", "categories": ["difficult-patient framing"]}],
+        )
+        self.assertEqual(
+            second_result["likely"],
+            [{"term": "difficult patient", "categories": ["difficult-patient framing"]}],
+        )
+        self.assertIn("response_format", captured_kwargs[0])
+        self.assertNotIn("response_format", captured_kwargs[1])
+        self.assertNotIn("response_format", captured_kwargs[2])
 
     def test_analysis_ready_output_drops_note_text_and_details(self):
         df = pd.DataFrame(
@@ -189,6 +285,37 @@ class BiasPipelineTests(unittest.TestCase):
             '["paternalistic framing", "autonomy-undermining language"]',
         )
         self.assertIn('"categories": ["paternalistic framing", "autonomy-undermining language"]', processed.loc[0, "Likely_Bias_Details"])
+
+    def test_notes_with_chunk_failures_are_not_persisted_in_cache(self):
+        class FailureStub(self.StubPipeline):
+            def analyze_note_text(self, full_text: str):
+                self.analyze_calls += 1
+                self._last_chunk_failures = [
+                    {
+                        "note_hash": self._current_note_hash,
+                        "chunk_index": 0,
+                        "chunk_char_count": len(full_text),
+                        "error": "Extra data: line 1 column 10 (char 9)",
+                        "response_preview": '{"possible": []} {"likely": []}',
+                    }
+                ]
+                return {"possible": [], "likely": [{"term": "difficult patient", "categories": ["difficult-patient framing"]}]}
+
+        df = pd.DataFrame([{"unique_id": 1, "note_text": "Same note reused"}])
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            cache_path = f"{temp_dir}/persistent_cache.csv"
+
+            first_pipeline = FailureStub(cache_path=cache_path)
+            first_result = first_pipeline.process_dataframe(df)
+
+            second_pipeline = FailureStub(cache_path=cache_path)
+            second_result = second_pipeline.process_dataframe(df)
+
+        self.assertEqual(first_pipeline.analyze_calls, 1)
+        self.assertEqual(second_pipeline.analyze_calls, 1)
+        self.assertEqual(first_result.loc[0, "Chunk_Failure_Count"], 1)
+        self.assertEqual(second_result.loc[0, "Chunk_Failure_Count"], 1)
 
 
 if __name__ == "__main__":

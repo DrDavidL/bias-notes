@@ -77,6 +77,7 @@ Notes:
 - For GPT-5-family deployments, some workflows may require `temperature=1`
 - The Streamlit app reads its Azure deployment from `st.secrets["azure_deployment"]`
 - Persistent cache reuse is version- and model-aware, so changing the deployment will not silently reuse stale cached note results from a different model
+- The shared pipeline now prefers strict schema-constrained structured outputs when the deployment supports them, and falls back to prompt-guided JSON parsing otherwise
 
 ## Recommended Workflow
 
@@ -104,12 +105,14 @@ Notes:
 `run_bias_batch.py`
 
 - uses the shared Azure pipeline
+- prefers strict structured outputs and falls back to prompt-guided JSON parsing if the deployment does not support them
 - does not modify or execute `.ipynb` files
 - checks that repo notebooks are blank before and after the run unless `--skip-notebook-check` is used
 - lets you choose how many charts/notes to sample
 - lets you set the random seed explicitly for reproducible chart selection
 - supports persistent cache reuse across runs
 - is the primary maintained execution path for repo results
+- writes a JSONL sidecar with malformed-response chunk failures for debugging
 - writes:
   - reviewer CSV
   - analysis-ready CSV
@@ -243,10 +246,16 @@ The shared pipeline writes these columns into the reviewer-facing results:
 - `Possible_Bias_Count`
 - `Likely_Bias_Count`
 - `Note_Word_Count`
+- `Chunk_Failure_Count`
+- `Chunk_Failure_Details`
 - `Prompt_Version`
 - `Pipeline_Version`
 - `Model_Used`
 - `Note_Hash`
+
+The batch runner also writes a sidecar JSONL file named like `*_chunk_failures.jsonl` containing note hash, chunk index, parse error, and a preview of the malformed model response for failed chunks.
+
+For supported Azure deployments, the pipeline requests a strict JSON Schema response for better output-shape reliability. If the deployment or API version does not support structured outputs, the pipeline automatically falls back to the older prompt-plus-parser path.
 
 The reviewer-adjudication export flattens phrase-level review into columns such as:
 

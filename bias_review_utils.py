@@ -24,7 +24,7 @@ _NORMALIZATION_ALIASES = {
     "tobacco smoker": "smoker identity label",
 }
 
-_ALLOWED_BIAS_CATEGORIES = [
+ALLOWED_BIAS_CATEGORIES = [
     "substance identity label",
     "condition identity label",
     "weight-based identity label",
@@ -52,7 +52,7 @@ _ALLOWED_BIAS_CATEGORIES = [
     "other / review needed",
 ]
 _CANONICAL_CATEGORY_BY_KEY = {
-    re.sub(r"\s+", " ", label.strip()).lower(): label for label in _ALLOWED_BIAS_CATEGORIES
+    re.sub(r"\s+", " ", label.strip()).lower(): label for label in ALLOWED_BIAS_CATEGORIES
 }
 _CATEGORY_SYNONYMS = {
     "substance-related identity-based labels": "substance identity label",

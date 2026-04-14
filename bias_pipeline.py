@@ -14,10 +14,10 @@ from typing import Dict, List, Optional
 import pandas as pd
 from openai import AzureOpenAI
 
-from bias_review_utils import canonicalize_bias_categories, enrich_bias_result
+from bias_review_utils import ALLOWED_BIAS_CATEGORIES, canonicalize_bias_categories, enrich_bias_result
 
 
-PIPELINE_VERSION = "2026-04-14-structured-categories-v1"
+PIPELINE_VERSION = "2026-04-14-structured-categories-v3"
 PROMPT_VERSION = "2026-04-14-structured-categories-v1"
 _AMBIGUOUS_POSSIBLE_TERMS = {
     "obese",
@@ -52,6 +52,8 @@ _OUTPUT_COLUMNS = [
     "Possible_Bias_Count",
     "Likely_Bias_Count",
     "Note_Word_Count",
+    "Chunk_Failure_Count",
+    "Chunk_Failure_Details",
     "Prompt_Version",
     "Pipeline_Version",
     "Model_Used",
@@ -114,6 +116,47 @@ _DOCUMENTATION_ARTIFACTS = re.compile(
     r"(?:tobacco\s+smoker\s*:\s*no|smoking\s+status\s*:\s*|mood\s+and\s+affect\s+congruent)",
     re.IGNORECASE,
 )
+_STRUCTURED_OUTPUT_SCHEMA = {
+    "name": "bias_detection_result",
+    "strict": True,
+    "schema": {
+        "type": "object",
+        "properties": {
+            "possible": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "term": {"type": "string"},
+                        "categories": {
+                            "type": "array",
+                            "items": {"type": "string", "enum": ALLOWED_BIAS_CATEGORIES},
+                        },
+                    },
+                    "required": ["term", "categories"],
+                    "additionalProperties": False,
+                },
+            },
+            "likely": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "term": {"type": "string"},
+                        "categories": {
+                            "type": "array",
+                            "items": {"type": "string", "enum": ALLOWED_BIAS_CATEGORIES},
+                        },
+                    },
+                    "required": ["term", "categories"],
+                    "additionalProperties": False,
+                },
+            },
+        },
+        "required": ["possible", "likely"],
+        "additionalProperties": False,
+    },
+}
 
 
 @dataclass
@@ -128,6 +171,9 @@ class AzureBiasPipelineConfig:
     global_max_calls: int = 8
     cache_chunk_responses: bool = True
     cache_path: Optional[str] = None
+    chunk_failure_log_path: Optional[str] = None
+    use_structured_outputs: bool = True
+    structured_outputs_fallback_to_prompt_json: bool = True
     enable_second_pass_adjudication: bool = True
     ambiguous_term_limit: int = 8
     prompt_version: str = PROMPT_VERSION
@@ -269,6 +315,28 @@ def _collect_detail_categories(detail: Dict[str, object]) -> List[str]:
     return []
 
 
+def _parse_model_response_text(text: str):
+    decoder = json.JSONDecoder()
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as initial_error:
+        first_openers = [
+            idx
+            for idx in (
+                text.find("{"),
+                text.find("["),
+            )
+            if idx != -1
+        ]
+        for start_idx in sorted(set(first_openers)):
+            try:
+                parsed, _ = decoder.raw_decode(text[start_idx:])
+                return parsed
+            except json.JSONDecodeError:
+                continue
+        raise initial_error
+
+
 def postprocess_results(result: Dict[str, List[object]]) -> Dict[str, List[object]]:
     return {
         "possible": [
@@ -295,6 +363,10 @@ class AzureBiasPipeline:
         self._cache_lock = Lock()
         self._chunk_cache: Dict[str, Dict[str, List[object]]] = {}
         self._note_cache = self._load_note_cache(config.cache_path)
+        self._current_note_hash = ""
+        self._last_chunk_failures: List[Dict[str, object]] = []
+        self._structured_outputs_enabled = config.use_structured_outputs
+        self._structured_outputs_disabled_reason = ""
 
     def _sleep_backoff(self, attempt: int) -> None:
         delay = self.config.sleep_base_sec * (2 ** (attempt - 1)) * random.uniform(0.7, 1.3)
@@ -370,7 +442,67 @@ class AzureBiasPipeline:
             return None
         return dict(payload)
 
-    def call_model_on_chunk(self, chunk_text: str) -> Dict[str, List[object]]:
+    def _record_chunk_failure(
+        self,
+        chunk_index: int,
+        chunk_text: str,
+        error: Exception,
+        response_text: str,
+    ) -> None:
+        failure = {
+            "note_hash": self._current_note_hash,
+            "chunk_index": chunk_index,
+            "chunk_char_count": len(chunk_text),
+            "error": str(error),
+            "response_preview": response_text[:500],
+        }
+        self._last_chunk_failures.append(failure)
+
+        if not self.config.chunk_failure_log_path:
+            return
+
+        log_dir = os.path.dirname(self.config.chunk_failure_log_path)
+        if log_dir:
+            os.makedirs(log_dir, exist_ok=True)
+        with open(self.config.chunk_failure_log_path, "a", encoding="utf-8") as handle:
+            handle.write(json.dumps(failure, ensure_ascii=False) + "\n")
+
+    @staticmethod
+    def _should_fallback_from_structured_outputs(error: Exception) -> bool:
+        if isinstance(error, TypeError):
+            return True
+
+        message = str(error).lower()
+        return (
+            "response_format" in message
+            or "json_schema" in message
+            or "structured output" in message
+            or "structured outputs" in message
+            or ("schema" in message and "unsupported" in message)
+            or ("invalid parameter" in message and "response_format" in message)
+        )
+
+    def _create_completion(self, user_content: str, response_format: Optional[Dict[str, object]] = None):
+        request_kwargs = {
+            "model": self.config.model_for_api,
+            "messages": [{"role": "user", "content": user_content}],
+            "temperature": self.config.temperature,
+        }
+        if response_format is not None:
+            request_kwargs["response_format"] = response_format
+
+        try:
+            return self.client.chat.completions.create(
+                max_completion_tokens=1024,
+                **request_kwargs,
+            )
+        except TypeError:
+            return self.client.chat.completions.create(
+                max_tokens=1024,
+                **request_kwargs,
+            )
+
+    def call_model_on_chunk(self, chunk_text: str, chunk_index: int = -1) -> Dict[str, List[object]]:
         cache_key = chunk_text.strip()
         if self.config.cache_chunk_responses and cache_key:
             with self._cache_lock:
@@ -383,33 +515,39 @@ class AzureBiasPipeline:
 
         user_content = inject_chunk_into_prompt(self.prompt_text, chunk_text)
         last_err: Optional[Exception] = None
+        last_response_text = ""
 
         for attempt in range(1, self.config.max_retries + 1):
             try:
                 with self._semaphore:
                     try:
-                        response = self.client.chat.completions.create(
-                            model=self.config.model_for_api,
-                            messages=[{"role": "user", "content": user_content}],
-                            max_completion_tokens=1024,
-                            temperature=self.config.temperature,
-                        )
-                    except TypeError:
-                        response = self.client.chat.completions.create(
-                            model=self.config.model_for_api,
-                            messages=[{"role": "user", "content": user_content}],
-                            max_tokens=1024,
-                            temperature=self.config.temperature,
-                        )
+                        if self._structured_outputs_enabled:
+                            response = self._create_completion(
+                                user_content,
+                                response_format={"type": "json_schema", "json_schema": _STRUCTURED_OUTPUT_SCHEMA},
+                            )
+                        else:
+                            response = self._create_completion(user_content)
+                    except Exception as structured_error:
+                        if (
+                            self._structured_outputs_enabled
+                            and self.config.structured_outputs_fallback_to_prompt_json
+                            and self._should_fallback_from_structured_outputs(structured_error)
+                        ):
+                            self._structured_outputs_enabled = False
+                            if not self._structured_outputs_disabled_reason:
+                                self._structured_outputs_disabled_reason = str(structured_error)
+                                print(
+                                    "[INFO] Structured outputs unavailable for this deployment/session; "
+                                    "falling back to prompt-guided JSON parsing."
+                                )
+                            response = self._create_completion(user_content)
+                        else:
+                            raise
 
                 text = (response.choices[0].message.content or "").strip()
-                try:
-                    data = json.loads(text)
-                except json.JSONDecodeError:
-                    match = re.search(r"\{[\s\S]*\}", text)
-                    if not match:
-                        return {"possible": [], "likely": []}
-                    data = json.loads(match.group(0))
+                last_response_text = text
+                data = _parse_model_response_text(text)
 
                 result: Dict[str, List[object]] = {"possible": [], "likely": []}
                 if isinstance(data, dict):
@@ -437,9 +575,12 @@ class AzureBiasPipeline:
                 return result
             except Exception as exc:
                 last_err = exc
-                self._sleep_backoff(attempt)
+                if attempt < self.config.max_retries:
+                    self._sleep_backoff(attempt)
 
         print(f"[WARN] Failed chunk after {self.config.max_retries} attempts: {last_err}")
+        if last_err is not None:
+            self._record_chunk_failure(chunk_index, chunk_text, last_err, last_response_text)
         return {"possible": [], "likely": []}
 
     def adjudicate_ambiguous_terms(self, note_text: str, enriched: Dict[str, object]) -> Dict[str, object]:
@@ -525,6 +666,7 @@ class AzureBiasPipeline:
         if not isinstance(full_text, str) or not full_text.strip():
             return {"possible": [], "likely": []}
 
+        self._last_chunk_failures = []
         chunks = chunk_by_sentences(full_text, self.config.chunk_char_limit)
         if not chunks:
             return {"possible": [], "likely": []}
@@ -532,7 +674,9 @@ class AzureBiasPipeline:
         if self.config.parallel_calls > 1 and len(chunks) > 1:
             results_by_idx: Dict[int, Dict[str, List[object]]] = {}
             with concurrent.futures.ThreadPoolExecutor(max_workers=self.config.parallel_calls) as executor:
-                future_map = {executor.submit(self.call_model_on_chunk, chunk): idx for idx, chunk in enumerate(chunks)}
+                future_map = {
+                    executor.submit(self.call_model_on_chunk, chunk, idx): idx for idx, chunk in enumerate(chunks)
+                }
                 for future in concurrent.futures.as_completed(future_map):
                     idx = future_map[future]
                     try:
@@ -541,7 +685,7 @@ class AzureBiasPipeline:
                         results_by_idx[idx] = {"possible": [], "likely": []}
             return self._merge_chunk_results(chunks, results_by_idx)
 
-        sequential_results = {idx: self.call_model_on_chunk(chunk) for idx, chunk in enumerate(chunks)}
+        sequential_results = {idx: self.call_model_on_chunk(chunk, idx) for idx, chunk in enumerate(chunks)}
         return self._merge_chunk_results(chunks, sequential_results)
 
     @staticmethod
@@ -600,6 +744,8 @@ class AzureBiasPipeline:
         processed["Possible_Bias_Count"] = 0
         processed["Likely_Bias_Count"] = 0
         processed["Note_Word_Count"] = 0
+        processed["Chunk_Failure_Count"] = 0
+        processed["Chunk_Failure_Details"] = "[]"
         processed["Prompt_Version"] = self.config.prompt_version
         processed["Pipeline_Version"] = self.config.pipeline_version
         processed["Model_Used"] = self.config.model_for_api
@@ -616,7 +762,9 @@ class AzureBiasPipeline:
                 for column, value in cached_payload.items():
                     processed.at[row_idx, column] = value
             else:
+                self._current_note_hash = note_hash
                 result = postprocess_results(self.analyze_note_text(note_text))
+                chunk_failures = list(self._last_chunk_failures)
                 enriched = enrich_bias_result(note_text, result)
                 enriched = self.adjudicate_ambiguous_terms(note_text, enriched)
                 payload = {
@@ -635,6 +783,8 @@ class AzureBiasPipeline:
                     "Possible_Bias_Count": len(enriched["possible_terms"]),
                     "Likely_Bias_Count": len(enriched["likely_terms"]),
                     "Note_Word_Count": enriched["note_word_count"],
+                    "Chunk_Failure_Count": len(chunk_failures),
+                    "Chunk_Failure_Details": json.dumps(chunk_failures, ensure_ascii=False),
                     "Prompt_Version": self.config.prompt_version,
                     "Pipeline_Version": self.config.pipeline_version,
                     "Model_Used": self.config.model_for_api,
@@ -642,7 +792,8 @@ class AzureBiasPipeline:
                 }
                 for column, value in payload.items():
                     processed.at[row_idx, column] = value
-                self._note_cache[note_hash] = dict(payload)
+                if not chunk_failures:
+                    self._note_cache[note_hash] = dict(payload)
 
             if processed_idx % 10 == 0 or processed_idx == total_rows:
                 elapsed = time.time() - start_time
