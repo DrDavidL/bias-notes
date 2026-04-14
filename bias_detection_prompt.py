@@ -14,12 +14,7 @@ TASK
 BIAS CATEGORIES
 The following categories were derived from expert review of 100 clinical notes. Use them to classify flagged phrases.
 
-1. **"Chief complaint" terminology** (POSSIBLE bias):
-   - Flag: "chief complaint"
-   - Suggestion: Use patient-centered terms such as "reason for visit" or "primary concern."
-   - Why: This term frames the patient's visit in a negative light and can be an example of patient-blaming language.
-
-2. **Substance-related identity-based labels** (LIKELY bias):
+1. **Substance-related identity-based labels** (LIKELY bias):
    - Flag: "tobacco smoker", "current smoker", "former smoker", "social smoker", "alcoholic", "drug user"
    - Pattern: "The patient [is/was/are] [a/an] [smoker/alcoholic/drug user]"
    - Exception: None.
@@ -63,13 +58,7 @@ The following categories were derived from expert review of 100 clinical notes. 
     - Suggestion: Describe objective data such as quantity, frequency, or pattern. Example: "the patient has smoked cigarettes for the past 15 years and currently smokes ~3 cigarettes per day."
     - Why: These terms judge substance use instead of describing quantity, frequency, or pattern.
 
-9. **Credibility-challenging verbs** (POSSIBLE bias when used in standard documentation; LIKELY bias when used accusatorily):
-    - Flag: "admits", "denies", "suspects"
-    - Exception: None.
-    - Suggestion: Replace with neutral terms and additional context. Example: "the patient has missed 3 doses of medication due to nightshift work; the patient has not experienced any cold symptoms; the patient is concerned about medication side effects."
-    - Why: These verbs imply doubt, blame, or confession rather than neutral reporting.
-
-10. **Attitude/behavior descriptions** (LIKELY bias):
+9. **Attitude/behavior descriptions** (LIKELY bias):
     - Flag: "aggressive", "belligerent", "combative", "aggression", "aggressively", "combativeness"
     - Exception: None.
     - Suggestion: If documentation of negative behavior is required, include objective descriptions. Example: "the patient used a raised voice towards hospital staff due to being upset about prolonged wait times."
@@ -95,12 +84,9 @@ ADDITIONAL SCOPE — LIKELY BIAS (flag as "likely" if clearly present)
 17) Language barriers framed pejoratively or blaming communication barriers on the patient.
 
 SCOPE — POSSIBLE BIAS (flag as "possible" when context-dependent or ambiguous)
-1) Outdated terminology that is still commonly used but has neutral alternatives (e.g., "chief complaint" — could use "reason for visit").
-2) "Denies" in standard ROS/HPI usage — while common, could be replaced with "reports no" or "has not experienced."
-3) "Admits" in standard documentation — while common, could be replaced with "reports" or "states."
-4) Terms that might be clinically appropriate in some contexts but could carry stigma (e.g., "obese" when BMI classification would be more precise).
-5) Phrases where intent is unclear without broader context.
-6) Medical jargon that may inadvertently pathologize but is not overtly judgmental.
+1) Terms that might be clinically appropriate in some contexts but could carry stigma (e.g., "obese" when BMI classification would be more precise).
+2) Phrases where intent is unclear without broader context.
+3) Medical jargon that may inadvertently pathologize but is not overtly judgmental.
 
 EXCLUSIONS (do not flag)
 - Neutral quotations of patient speech with appropriate context.
@@ -117,10 +103,7 @@ MATCHING RULES
 - Use the TERM_BANK below (case-insensitive). Also flag close variants (pluralization; hyphen/space/no-space variants).
 - Also flag phrases that match the category patterns above even if not in TERM_BANK.
 - Identity-first disease labels: flag as "likely" when used to define the person (e.g., "the diabetic," "a hypertensive"). Flag as "possible" when ambiguous.
-- "Denies": flag as "likely" when used accusatorily; flag as "possible" for standard ROS/HPI usage where neutral alternatives exist.
-- "Admits": flag as "likely" when used to imply confession; flag as "possible" for standard documentation where "reports" or "states" would be more neutral.
 - "Refused/refuses": flag as "likely" when judgmental; flag as "possible" when neutrally documenting but could use softer language.
-- "Chief complaint": flag as "possible" — outdated but widely used, "reason for visit" is preferred.
 - Substance identity labels (smoker, alcoholic, drug user): flag as "likely" when they define the person.
 - Weight/condition identity labels: flag as "likely" when they define the person by diagnosis or body size.
 - Effort-based language (trying, struggles, suffers): flag as "likely" — distinguish from time-bound actions like "tried metformin."
@@ -222,10 +205,6 @@ TERM_BANK — LIKELY (clearly stigmatizing; flag as "likely")
 
 TERM_BANK — POSSIBLE (context-dependent; flag as "possible")
 [
-  "chief complaint",
-  "denies" (standard ROS usage),
-  "admits" (standard documentation),
-  "suspects" (when patient is reporting concerns),
   "refused" (neutral documentation),
   "user" (context-dependent),
   "dependent" (may be clinical term),
@@ -259,7 +238,7 @@ INPUT NOTE CHUNK
 >>>
 
 INSTRUCTIONS
-1) Scan the note for TERM_BANK items (with variant handling) and for category-pattern phrases from the 10 BIAS CATEGORIES above.
+1) Scan the note for TERM_BANK items (with variant handling) and for category-pattern phrases from the BIAS CATEGORIES above.
 2) Classify each flagged phrase as "likely" or "possible" based on context and the criteria above.
 3) Apply the exclusion rules to avoid false positives (especially time-bound actions, condition descriptions, and any "normal" language).
 4) Return ONLY a JSON object: {"possible": [...], "likely": [...]}

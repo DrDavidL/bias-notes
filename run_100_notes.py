@@ -25,7 +25,7 @@ client = AzureOpenAI(
 
 # ---------- CONFIG ----------
 INPUT_CSV = "/Users/dli989/Library/CloudStorage/OneDrive-NorthwesternUniversity/all_500_cleaned.csv"
-OUTPUT_DIR = "/Users/dli989/Documents/GitHub/bias-notes/output"
+OUTPUT_DIR = "/Users/dli989/Library/CloudStorage/OneDrive-NorthwesternUniversity/bias-notes/output"
 OUTPUT_PREFIX = "bias_flagged_updated"
 PROMPT_PATH = "/Users/dli989/Documents/GitHub/bias-notes/bias_detection_prompt.py"
 
