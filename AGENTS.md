@@ -29,3 +29,5 @@ Research project (Landsburg Society Research Award) comparing physician-written 
 - LLM output is JSON: `{"possible": ["term1", ...], "likely": ["term1", ...]}`
 - Notes are chunked by sentence boundaries (default 2800 chars) before sending to the LLM
 - Temperature should be 0 for deterministic extraction (except GPT-5 which requires 1)
+- Use `uv` as the default Python workflow for this repo: `uv sync` for environment setup, `uv lock` to refresh locked versions, and `uv run ...` for scripts/tests/apps
+- Prefer the `uv` workflow over ad hoc `pip install ...` or bare `python ...` commands because it gives better reproducibility, safer dependency management, and lower maintenance overhead across local runs and agent sessions

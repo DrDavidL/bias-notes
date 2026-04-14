@@ -1,0 +1,14 @@
+#!/bin/sh
+set -eu
+
+repo_root="$(git rev-parse --show-toplevel)"
+cd "$repo_root"
+
+echo "Running notebook hygiene check before push..."
+
+if command -v uv >/dev/null 2>&1; then
+    unset VIRTUAL_ENV
+    uv run python check_notebooks_clean.py
+else
+    python3 check_notebooks_clean.py
+fi

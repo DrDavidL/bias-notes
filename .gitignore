@@ -42,6 +42,7 @@ ENV/
 env.bak/
 venv.bak/
 .python-version
+!.python-version
 
 ########################
 # PYTHON TOOLS / CACHES
@@ -111,6 +112,7 @@ LMStudio/
 *.squashfs
 *.oci
 *.lock
+!uv.lock
 docker-compose.override.yml
 
 ########################

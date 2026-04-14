@@ -38,10 +38,20 @@ The core detection logic lives in `bias_detection_prompt.py` and the shared exec
    - optional: `BIAS_NOTES_PROMPT_PATH`
    - optional: `BIAS_NOTES_CACHE_PATH`
    - optional: `BIAS_NOTES_RESULTS_FILE`
-4. Install dependencies:
+4. Install dependencies with `uv`:
 
 ```bash
-pip install -r requirements.txt
+uv sync
+```
+
+Optional:
+
+- Create or refresh the lockfile with `uv lock`
+- Run scripts with `uv run ...`
+- If you still need a `requirements.txt` export for another environment, generate it from the lockfile instead of editing it manually
+
+```bash
+uv export --format requirements-txt -o requirements.txt
 ```
 
 ## Changing The Azure Hosted Model
@@ -71,7 +81,9 @@ Notes:
 1. Preprocess notes:
    - Use `pre_process_notes.ipynb` to remove DAX attestation language from the raw CSV.
 2. Run Azure bias detection:
-   - Use `run_100_notes.py` for the shared batch pipeline.
+   - Use `uv run python run_bias_batch.py` for the shared batch pipeline that runs fully outside notebooks.
+   - Set `--charts` to the number of charts you want to process and `--seed` to keep random selection reproducible.
+   - The legacy `run_100_notes.py` entry point now forwards to the same script-first runner.
    - Or use `prepare_csv.ipynb` / `bias_assessment.ipynb` if notebook execution is preferred.
 3. Review outputs:
    - reviewer-facing CSV: full result file with note text
@@ -87,9 +99,13 @@ Notes:
 
 ### Batch runner
 
-`run_100_notes.py`
+`run_bias_batch.py`
 
 - uses the shared Azure pipeline
+- does not modify or execute `.ipynb` files
+- checks that repo notebooks are blank before and after the run unless `--skip-notebook-check` is used
+- lets you choose how many charts/notes to sample
+- lets you set the random seed explicitly for reproducible chart selection
 - supports persistent cache reuse across runs
 - writes:
   - reviewer CSV
@@ -99,7 +115,19 @@ Notes:
 Example:
 
 ```bash
-python3 run_100_notes.py
+uv run python run_bias_batch.py --charts 10 --seed 42
+```
+
+Preview the exact 10-chart selection without calling Azure:
+
+```bash
+uv run python run_bias_batch.py --charts 10 --seed 42 --dry-run
+```
+
+Compatibility alias:
+
+```bash
+uv run python run_100_notes.py --charts 10 --seed 42
 ```
 
 ### Analysis CLI
@@ -114,7 +142,7 @@ python3 run_100_notes.py
 Example:
 
 ```bash
-python3 analyze_results.py /secure/path/to/results_analysis_ready.csv
+uv run python analyze_results.py /secure/path/to/results_analysis_ready.csv
 ```
 
 ### Reviewer export converter
@@ -124,7 +152,7 @@ python3 analyze_results.py /secure/path/to/results_analysis_ready.csv
 Use this when you already have a historical results CSV and want the newer reviewer-friendly long-format export without rerunning the model.
 
 ```bash
-python3 export_reviewer_adjudication.py /secure/path/to/results.csv
+uv run python export_reviewer_adjudication.py /secure/path/to/results.csv
 ```
 
 ### Streamlit app
@@ -138,7 +166,7 @@ python3 export_reviewer_adjudication.py /secure/path/to/results.csv
 Example:
 
 ```bash
-streamlit run main.py
+uv run streamlit run main.py
 ```
 
 ### Ollama local workflow
@@ -232,7 +260,7 @@ The reviewer-adjudication export flattens phrase-level review into columns such 
 Run:
 
 ```bash
-python3 -m unittest discover -s tests
+uv run python -m unittest discover -s tests
 ```
 
 The tests cover:
@@ -261,9 +289,22 @@ Do not commit:
 
 Before pushing, confirm:
 
-- notebooks have no outputs
+- notebooks have no outputs or execution counts
+- `uv run python check_notebooks_clean.py` passes
 - no absolute local paths appear in committed files
 - no confidential CSV/XLSX files are staged
+
+## Git Hooks
+
+The repo includes a versioned pre-push hook at `.githooks/pre-push` that blocks pushes when notebooks are dirty.
+
+Enable it once per clone:
+
+```bash
+uv run python scripts/install_git_hooks.py
+```
+
+After that, every `git push` will run the notebook hygiene check automatically.
 
 ## Notes
 
