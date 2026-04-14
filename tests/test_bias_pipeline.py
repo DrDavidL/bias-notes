@@ -35,7 +35,10 @@ class BiasPipelineTests(unittest.TestCase):
 
         def analyze_note_text(self, full_text: str):
             self.analyze_calls += 1
-            return {"possible": ["obese"], "likely": ["difficult patient"]}
+            return {
+                "possible": [{"term": "obese", "categories": ["weight-based identity label"]}],
+                "likely": [{"term": "difficult patient", "categories": ["difficult-patient framing"]}],
+            }
 
     def test_chunk_by_sentences_respects_boundaries(self):
         text = "Sentence one. Sentence two is a bit longer. Sentence three."
@@ -47,14 +50,14 @@ class BiasPipelineTests(unittest.TestCase):
 
     def test_postprocess_results_filters_physiologic_normal_language(self):
         result = {
-            "possible": ["normal", "normal breath sounds", "obese"],
-            "likely": ["difficult patient", "mood and affect congruent"],
+            "possible": ["normal", "normal breath sounds", {"term": "obese", "categories": ["weight-based identity label"]}],
+            "likely": [{"term": "difficult patient", "categories": ["difficult-patient framing"]}, "mood and affect congruent"],
         }
 
         filtered = postprocess_results(result)
 
-        self.assertEqual(filtered["possible"], ["obese"])
-        self.assertEqual(filtered["likely"], ["difficult patient"])
+        self.assertEqual(filtered["possible"], [{"term": "obese", "categories": ["weight-based identity label"]}])
+        self.assertEqual(filtered["likely"], [{"term": "difficult patient", "categories": ["difficult-patient framing"]}])
 
     def test_analysis_ready_output_drops_note_text_and_details(self):
         df = pd.DataFrame(
@@ -141,6 +144,51 @@ class BiasPipelineTests(unittest.TestCase):
             first_result.loc[0, "Likely_Biased_Terms"],
             second_result.loc[0, "Likely_Biased_Terms"],
         )
+
+    def test_merge_chunk_results_unions_categories_for_same_term(self):
+        merged = AzureBiasPipeline._merge_chunk_results(
+            ["chunk one", "chunk two"],
+            {
+                0: {
+                    "possible": [],
+                    "likely": [{"term": "obese", "categories": ["weight-based identity label"]}],
+                },
+                1: {
+                    "possible": [],
+                    "likely": [{"term": "obese", "categories": ["condition identity label", "weight-based identity label"]}],
+                },
+            },
+        )
+
+        self.assertEqual(
+            merged["likely"],
+            [{"term": "obese", "categories": ["weight-based identity label", "condition identity label"]}],
+        )
+
+    def test_process_dataframe_uses_model_categories_when_valid(self):
+        class StructuredStub(self.StubPipeline):
+            def analyze_note_text(self, full_text: str):
+                self.analyze_calls += 1
+                return {
+                    "possible": [],
+                    "likely": [
+                        {
+                            "term": "was told to",
+                            "categories": ["paternalistic framing", "autonomy-undermining language"],
+                        }
+                    ],
+                }
+
+        df = pd.DataFrame([{"unique_id": 1, "note_text": "The patient was told to return in two weeks."}])
+        pipeline = StructuredStub()
+
+        processed = pipeline.process_dataframe(df)
+
+        self.assertEqual(
+            processed.loc[0, "Likely_Bias_Categories"],
+            '["paternalistic framing", "autonomy-undermining language"]',
+        )
+        self.assertIn('"categories": ["paternalistic framing", "autonomy-undermining language"]', processed.loc[0, "Likely_Bias_Details"])
 
 
 if __name__ == "__main__":

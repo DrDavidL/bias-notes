@@ -13,7 +13,9 @@ This repo contains:
 - reviewer-friendly adjudication exports
 - a Streamlit app for interactive review
 
-The core detection logic lives in `bias_detection_prompt.py` and the shared execution engine lives in `bias_pipeline.py`.
+The core detection logic lives in `bias_detection_prompt.py` and the primary shared execution engine lives in `bias_pipeline.py`.
+
+The script-based pipeline is the canonical repo workflow. Notebooks are retained for exploration, demos, and public-facing reproducibility, and may intentionally diverge from the shared script pipeline over time.
 
 ## Security Model
 
@@ -84,7 +86,7 @@ Notes:
    - Use `uv run python run_bias_batch.py` for the shared batch pipeline that runs fully outside notebooks.
    - Set `--charts` to the number of charts you want to process and `--seed` to keep random selection reproducible.
    - The legacy `run_100_notes.py` entry point now forwards to the same script-first runner.
-   - Or use `prepare_csv.ipynb` / `bias_assessment.ipynb` if notebook execution is preferred.
+   - Use `prepare_csv.ipynb` / `bias_assessment.ipynb` only when notebook execution is specifically useful; they are not the canonical pipeline and may diverge from the shared script implementation.
 3. Review outputs:
    - reviewer-facing CSV: full result file with note text
    - analysis-ready CSV: drops note text and detailed context
@@ -107,6 +109,7 @@ Notes:
 - lets you choose how many charts/notes to sample
 - lets you set the random seed explicitly for reproducible chart selection
 - supports persistent cache reuse across runs
+- is the primary maintained execution path for repo results
 - writes:
   - reviewer CSV
   - analysis-ready CSV
@@ -199,6 +202,13 @@ Important differences:
 - It does not use Azure credentials
 - It is intended for local experiments, not the default protected-data research path
 - If you want full parity with the shared Azure pipeline over time, keep validating Ollama outputs against the adjudication workflow
+
+## Notebooks vs. scripts
+
+- `run_bias_batch.py` plus `bias_pipeline.py` is the canonical pipeline for repo-maintained results.
+- The Streamlit app also uses that same shared pipeline.
+- Notebooks are allowed to diverge when that makes experimentation, walkthroughs, or public sharing easier.
+- If script and notebook behavior differ, treat the script pipeline as authoritative unless a research-specific notebook workflow is being intentionally evaluated.
 
 ## Shared Configuration
 

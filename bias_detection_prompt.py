@@ -2,17 +2,48 @@
 
 TASK
 - Input: A single note chunk in English.
-- Output: A JSON object with two keys: "possible" and "likely", each containing an array of exact phrases from the note.
+- Output: A JSON object with two keys: "possible" and "likely", each containing an array of objects.
+  - Each object must have:
+    - "term": the exact phrase from the note
+    - "categories": an array of one or more canonical category labels from the allowed list below
   - "likely": Phrases that clearly reflect biased or stigmatizing language based on the categories below.
   - "possible": Phrases that may reflect bias but are ambiguous or context-dependent.
 - If none found for a category, return an empty array for that key.
 - Do NOT add explanations or additional keys — just the JSON object with "possible" and "likely" arrays.
 - Preserve the original casing and punctuation of each matched phrase as it appears in the note.
-- De-duplicate identical phrases within each category; keep the first occurrence only.
+- De-duplicate identical phrases within each bucket; keep the first occurrence only and merge all applicable categories onto that one term object.
 - Keep order of appearance in the note.
 
 BIAS CATEGORIES
 The following categories were derived from expert review of 100 clinical notes. Use them to classify flagged phrases.
+
+CANONICAL CATEGORY LABELS
+Use only these exact strings in each "categories" array:
+- "substance identity label"
+- "condition identity label"
+- "weight-based identity label"
+- "moralizing lifestyle language"
+- "effort-based language"
+- "outcome-judging language"
+- "substance-use judgment"
+- "behavior description"
+- "credibility-doubting language"
+- "disapproval / moralizing tone"
+- "stereotyping"
+- "difficult-patient framing"
+- "paternalistic framing"
+- "judgmental social risk framing"
+- "power/privilege judgment"
+- "appearance-based assumption"
+- "protected-class stereotyping"
+- "autonomy-undermining language"
+- "disrespectful / condescending tone"
+- "cultural insensitivity"
+- "ageism"
+- "gender bias"
+- "classism"
+- "language-bias framing"
+- "other / review needed"
 
 1. **Substance-related identity-based labels** (LIKELY bias):
    - Flag: "tobacco smoker", "current smoker", "former smoker", "social smoker", "alcoholic", "drug user"
@@ -117,8 +148,10 @@ MATCHING RULES
 
 OUTPUT
 - Return exactly one JSON object:
-  {"possible": ["<phrase 1>", ...], "likely": ["<phrase 1>", ...]}
+  {"possible": [{"term": "<phrase 1>", "categories": ["<canonical category>"]}], "likely": [{"term": "<phrase 1>", "categories": ["<canonical category>"]}]}
 - Each array may be empty if nothing fits that category.
+- Use one object per distinct term per bucket.
+- If multiple categories apply to the same term, include all of them in the term's "categories" array.
 - No prose, no additional keys.
 
 TERM_BANK — LIKELY (clearly stigmatizing; flag as "likely")
@@ -244,6 +277,7 @@ INPUT NOTE CHUNK
 INSTRUCTIONS
 1) Scan the note for TERM_BANK items (with variant handling) and for category-pattern phrases from the BIAS CATEGORIES above.
 2) Classify each flagged phrase as "likely" or "possible" based on context and the criteria above.
-3) Apply the exclusion rules to avoid false positives (especially time-bound actions, condition descriptions, and any "normal" language).
-4) Return ONLY a JSON object: {"possible": [...], "likely": [...]}
+3) For each flagged phrase, assign one or more applicable canonical category labels from the CANONICAL CATEGORY LABELS list.
+4) Apply the exclusion rules to avoid false positives (especially time-bound actions, condition descriptions, and any "normal" language).
+5) Return ONLY a JSON object: {"possible": [{"term": "...", "categories": ["..."]}], "likely": [{"term": "...", "categories": ["..."]}]}
 """

@@ -14,11 +14,11 @@ from typing import Dict, List, Optional
 import pandas as pd
 from openai import AzureOpenAI
 
-from bias_review_utils import enrich_bias_result
+from bias_review_utils import canonicalize_bias_categories, enrich_bias_result
 
 
-PIPELINE_VERSION = "2026-04-14-enriched-v3"
-PROMPT_VERSION = "2026-04-14-tightened-v1"
+PIPELINE_VERSION = "2026-04-14-structured-categories-v1"
+PROMPT_VERSION = "2026-04-14-structured-categories-v1"
 _AMBIGUOUS_POSSIBLE_TERMS = {
     "obese",
     "diabetic",
@@ -215,10 +215,74 @@ def is_physiologic_false_positive(term: str) -> bool:
     return bool(re.fullmatch(r"normal\.?", stripped, re.IGNORECASE))
 
 
-def postprocess_results(result: Dict[str, List[str]]) -> Dict[str, List[str]]:
+def _extract_result_term(item) -> str:
+    if isinstance(item, dict):
+        for key in ("term", "phrase", "text"):
+            value = str(item.get(key, "")).strip()
+            if value:
+                return re.sub(r"\s+", " ", value)
+        return ""
+    return re.sub(r"\s+", " ", str(item).strip())
+
+
+def _extract_result_categories(item) -> List[str]:
+    if not isinstance(item, dict):
+        return []
+    categories = item.get("categories")
+    if categories is None and item.get("category"):
+        categories = [item.get("category")]
+    elif isinstance(categories, str):
+        categories = [categories]
+    elif not isinstance(categories, list):
+        categories = []
+    return canonicalize_bias_categories(categories)
+
+
+def _normalize_result_entry(item):
+    term = _extract_result_term(item)
+    if not term:
+        return None
+    categories = _extract_result_categories(item)
+    if categories:
+        return {"term": term, "categories": categories}
+    return term
+
+
+def _canonical_term_key(term: str) -> str:
+    return re.sub(r"\s+", " ", term.strip()).strip(" ,.;:!?()[]{}\"'").lower()
+
+
+def _collect_detail_categories(detail: Dict[str, object]) -> List[str]:
+    raw_categories = detail.get("categories", [])
+    if isinstance(raw_categories, str):
+        raw_categories = [raw_categories]
+    categories = canonicalize_bias_categories(raw_categories if isinstance(raw_categories, list) else [])
+    if categories:
+        return categories
+
+    category = detail.get("category", "")
+    if category:
+        categories = canonicalize_bias_categories([category])
+        if categories:
+            return categories
+        return [str(category).strip()]
+    return []
+
+
+def postprocess_results(result: Dict[str, List[object]]) -> Dict[str, List[object]]:
     return {
-        "possible": [term for term in result["possible"] if not is_physiologic_false_positive(term)],
-        "likely": [term for term in result["likely"] if not is_physiologic_false_positive(term)],
+        "possible": [
+            normalized_item
+            for item in result["possible"]
+            for normalized_item in [_normalize_result_entry(item)]
+            if normalized_item and not is_physiologic_false_positive(_extract_result_term(normalized_item))
+        ],
+        "likely": [
+            normalized_item
+            for item in result["likely"]
+            for normalized_item in [_normalize_result_entry(item)]
+            if normalized_item and not is_physiologic_false_positive(_extract_result_term(normalized_item))
+        ],
     }
 
 
@@ -229,7 +293,7 @@ class AzureBiasPipeline:
         self.prompt_text = load_prompt_text(config.prompt_path)
         self._semaphore = Semaphore(config.global_max_calls)
         self._cache_lock = Lock()
-        self._chunk_cache: Dict[str, Dict[str, List[str]]] = {}
+        self._chunk_cache: Dict[str, Dict[str, List[object]]] = {}
         self._note_cache = self._load_note_cache(config.cache_path)
 
     def _sleep_backoff(self, attempt: int) -> None:
@@ -306,7 +370,7 @@ class AzureBiasPipeline:
             return None
         return dict(payload)
 
-    def call_model_on_chunk(self, chunk_text: str) -> Dict[str, List[str]]:
+    def call_model_on_chunk(self, chunk_text: str) -> Dict[str, List[object]]:
         cache_key = chunk_text.strip()
         if self.config.cache_chunk_responses and cache_key:
             with self._cache_lock:
@@ -347,13 +411,23 @@ class AzureBiasPipeline:
                         return {"possible": [], "likely": []}
                     data = json.loads(match.group(0))
 
-                result = {"possible": [], "likely": []}
+                result: Dict[str, List[object]] = {"possible": [], "likely": []}
                 if isinstance(data, dict):
                     for key in ("possible", "likely"):
                         if key in data and isinstance(data[key], list):
-                            result[key] = [str(item).strip() for item in data[key] if str(item).strip()]
+                            result[key] = [
+                                normalized_item
+                                for item in data[key]
+                                for normalized_item in [_normalize_result_entry(item)]
+                                if normalized_item
+                            ]
                 elif isinstance(data, list):
-                    result["likely"] = [str(item).strip() for item in data if str(item).strip()]
+                    result["likely"] = [
+                        normalized_item
+                        for item in data
+                        for normalized_item in [_normalize_result_entry(item)]
+                        if normalized_item
+                    ]
                 if self.config.cache_chunk_responses and cache_key:
                     with self._cache_lock:
                         self._chunk_cache[cache_key] = {
@@ -439,11 +513,15 @@ class AzureBiasPipeline:
         enriched["likely_terms"] = [detail["term"] for detail in likely_details]
         enriched["possible_normalized_terms"] = list(dict.fromkeys(detail["normalized_term"] for detail in possible_details_kept))
         enriched["likely_normalized_terms"] = list(dict.fromkeys(detail["normalized_term"] for detail in likely_details))
-        enriched["possible_categories"] = list(dict.fromkeys(detail["category"] for detail in possible_details_kept))
-        enriched["likely_categories"] = list(dict.fromkeys(detail["category"] for detail in likely_details))
+        enriched["possible_categories"] = list(
+            dict.fromkeys(category for detail in possible_details_kept for category in _collect_detail_categories(detail))
+        )
+        enriched["likely_categories"] = list(
+            dict.fromkeys(category for detail in likely_details for category in _collect_detail_categories(detail))
+        )
         return enriched
 
-    def analyze_note_text(self, full_text: str) -> Dict[str, List[str]]:
+    def analyze_note_text(self, full_text: str) -> Dict[str, List[object]]:
         if not isinstance(full_text, str) or not full_text.strip():
             return {"possible": [], "likely": []}
 
@@ -452,7 +530,7 @@ class AzureBiasPipeline:
             return {"possible": [], "likely": []}
 
         if self.config.parallel_calls > 1 and len(chunks) > 1:
-            results_by_idx: Dict[int, Dict[str, List[str]]] = {}
+            results_by_idx: Dict[int, Dict[str, List[object]]] = {}
             with concurrent.futures.ThreadPoolExecutor(max_workers=self.config.parallel_calls) as executor:
                 future_map = {executor.submit(self.call_model_on_chunk, chunk): idx for idx, chunk in enumerate(chunks)}
                 for future in concurrent.futures.as_completed(future_map):
@@ -467,19 +545,43 @@ class AzureBiasPipeline:
         return self._merge_chunk_results(chunks, sequential_results)
 
     @staticmethod
-    def _merge_chunk_results(chunks: List[str], results_by_idx: Dict[int, Dict[str, List[str]]]) -> Dict[str, List[str]]:
-        seen_possible, seen_likely = set(), set()
-        aggregated = {"possible": [], "likely": []}
-        for idx in range(len(chunks)):
-            chunk_result = results_by_idx.get(idx, {"possible": [], "likely": []})
-            for term in chunk_result.get("possible", []):
-                if term and term not in seen_possible:
-                    seen_possible.add(term)
-                    aggregated["possible"].append(term)
-            for term in chunk_result.get("likely", []):
-                if term and term not in seen_likely:
-                    seen_likely.add(term)
-                    aggregated["likely"].append(term)
+    def _merge_chunk_results(chunks: List[str], results_by_idx: Dict[int, Dict[str, List[object]]]) -> Dict[str, List[object]]:
+        aggregated: Dict[str, List[object]] = {"possible": [], "likely": []}
+
+        for bucket in ("possible", "likely"):
+            merged_by_key: Dict[str, Dict[str, object]] = {}
+            ordered_keys: List[str] = []
+
+            for idx in range(len(chunks)):
+                chunk_result = results_by_idx.get(idx, {"possible": [], "likely": []})
+                for item in chunk_result.get(bucket, []):
+                    normalized_item = _normalize_result_entry(item)
+                    if not normalized_item:
+                        continue
+
+                    term = _extract_result_term(normalized_item)
+                    key = _canonical_term_key(term)
+                    if not key:
+                        continue
+
+                    categories = _extract_result_categories(normalized_item)
+                    if key not in merged_by_key:
+                        merged_by_key[key] = {"term": term, "categories": list(categories)}
+                        ordered_keys.append(key)
+                        continue
+
+                    existing_categories = merged_by_key[key]["categories"]
+                    for category in categories:
+                        if category not in existing_categories:
+                            existing_categories.append(category)
+
+            aggregated[bucket] = [
+                {"term": merged_by_key[key]["term"], "categories": list(merged_by_key[key]["categories"])}
+                if merged_by_key[key]["categories"]
+                else str(merged_by_key[key]["term"])
+                for key in ordered_keys
+            ]
+
         return aggregated
 
     def process_dataframe(self, df: pd.DataFrame, text_column: str = "note_text") -> pd.DataFrame:
@@ -632,13 +734,14 @@ def build_reviewer_adjudication_dataframe(df: pd.DataFrame) -> pd.DataFrame:
                 ]
 
             for detail in details:
+                detail_categories = _collect_detail_categories(detail) if isinstance(detail, dict) else []
                 rows.append(
                     {
                         **shared_fields,
                         "model_bucket": bucket,
                         "model_term": detail.get("term", ""),
                         "normalized_term": detail.get("normalized_term", ""),
-                        "model_category": detail.get("category", ""),
+                        "model_category": detail.get("category", "") or " | ".join(detail_categories),
                         "term_context": detail.get("context", ""),
                     }
                 )

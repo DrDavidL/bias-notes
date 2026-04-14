@@ -14,7 +14,7 @@ Research project (Landsburg Society Research Award) comparing physician-written 
 6. **`main.py`** - Streamlit web app for interactive upload, manual review, LLM review, and comparison
 
 ### Key files:
-- **`bias_detection_prompt.py`** - The core LLM prompt defining bias categories, term banks, matching rules, and expected JSON output format (`{"possible": [...], "likely": [...]}`)
+- **`bias_detection_prompt.py`** - The core LLM prompt defining bias categories, term banks, matching rules, and expected JSON output format (`{"possible": [{"term": "...", "categories": ["..."]}], "likely": [{"term": "...", "categories": ["..."]}]}`)
 - **`.env`** - Azure OpenAI credentials (AZURE_OPENAI_ENDPOINT, AZURE_DEPLOYMENT, AZURE_SUBSCRIPTION_KEY, AZURE_API_VERSION)
 
 ## Data
@@ -26,7 +26,7 @@ Research project (Landsburg Society Research Award) comparing physician-written 
 ## Development Notes
 - `.gitignore` excludes `.ipynb`, `.csv`, `.xlsx` files from version control
 - The `bias_detection_prompt.py` is the single source of truth for what constitutes biased language - both Azure and Ollama notebooks load it
-- LLM output is JSON: `{"possible": ["term1", ...], "likely": ["term1", ...]}`
+- LLM output is JSON: `{"possible": [{"term": "term1", "categories": ["category1"]}], "likely": [{"term": "term1", "categories": ["category1"]}]}`
 - Notes are chunked by sentence boundaries (default 2800 chars) before sending to the LLM
 - Temperature should be 0 for deterministic extraction (except GPT-5 which requires 1)
 - Use `uv` as the default Python workflow for this repo: `uv sync` for environment setup, `uv lock` to refresh locked versions, and `uv run ...` for scripts/tests/apps

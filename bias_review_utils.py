@@ -1,5 +1,5 @@
 import re
-from typing import Dict, List
+from typing import Dict, Iterable, List
 
 
 _GENERIC_FALSE_POSITIVE_TERMS = {
@@ -22,6 +22,56 @@ _NORMALIZATION_ALIASES = {
     "former smoker": "smoker identity label",
     "social smoker": "smoker identity label",
     "tobacco smoker": "smoker identity label",
+}
+
+_ALLOWED_BIAS_CATEGORIES = [
+    "substance identity label",
+    "condition identity label",
+    "weight-based identity label",
+    "moralizing lifestyle language",
+    "effort-based language",
+    "outcome-judging language",
+    "substance-use judgment",
+    "behavior description",
+    "credibility-doubting language",
+    "disapproval / moralizing tone",
+    "stereotyping",
+    "difficult-patient framing",
+    "paternalistic framing",
+    "judgmental social risk framing",
+    "power/privilege judgment",
+    "appearance-based assumption",
+    "protected-class stereotyping",
+    "autonomy-undermining language",
+    "disrespectful / condescending tone",
+    "cultural insensitivity",
+    "ageism",
+    "gender bias",
+    "classism",
+    "language-bias framing",
+    "other / review needed",
+]
+_CANONICAL_CATEGORY_BY_KEY = {
+    re.sub(r"\s+", " ", label.strip()).lower(): label for label in _ALLOWED_BIAS_CATEGORIES
+}
+_CATEGORY_SYNONYMS = {
+    "substance-related identity-based labels": "substance identity label",
+    "condition-based identity labels": "condition identity label",
+    "weight-based identity labels": "weight-based identity label",
+    "moralizing lifestyle labels": "moralizing lifestyle language",
+    "attitude/behavior descriptions": "behavior description",
+    "substance-use judgmental language": "substance-use judgment",
+    "questioning patient credibility": "credibility-doubting language",
+    "difficult patient framing": "difficult-patient framing",
+    "\"difficult patient\" framing": "difficult-patient framing",
+    "unilateral, authority-centered framing": "paternalistic framing",
+    "social/behavioral risk assessments framed judgmentally": "judgmental social risk framing",
+    "power/privilege descriptors used without clinical relevance": "power/privilege judgment",
+    "assumptions based on appearance": "appearance-based assumption",
+    "language reinforcing stereotypes about protected classes": "protected-class stereotyping",
+    "undermining autonomy": "autonomy-undermining language",
+    "disrespectful/condescending tone": "disrespectful / condescending tone",
+    "language barriers framed pejoratively": "language-bias framing",
 }
 
 _CATEGORY_PATTERNS = [
@@ -102,6 +152,34 @@ def infer_bias_category(term: str) -> str:
     return "other / review needed"
 
 
+def canonicalize_bias_category(category: str) -> str:
+    cleaned = re.sub(r"\s+", " ", str(category).strip().strip(" ,.;:!?()[]{}\"'"))
+    if not cleaned:
+        return ""
+
+    lowered = cleaned.lower().replace("_", " ")
+    lowered = re.sub(r"\s+", " ", lowered)
+    canonical = _CANONICAL_CATEGORY_BY_KEY.get(lowered)
+    if canonical:
+        return canonical
+
+    mapped = _CATEGORY_SYNONYMS.get(lowered, "")
+    if mapped:
+        return mapped
+    return ""
+
+
+def canonicalize_bias_categories(categories: Iterable[str]) -> List[str]:
+    canonical: List[str] = []
+    seen = set()
+    for category in categories:
+        normalized = canonicalize_bias_category(category)
+        if normalized and normalized not in seen:
+            canonical.append(normalized)
+            seen.add(normalized)
+    return canonical
+
+
 def _split_sentences(note_text: str) -> List[str]:
     if not isinstance(note_text, str):
         return []
@@ -140,7 +218,7 @@ def count_note_words(note_text: str) -> int:
     return len(re.findall(r"\b\w+\b", note_text))
 
 
-def enrich_bias_result(note_text: str, result: Dict[str, List[str]]) -> Dict[str, object]:
+def enrich_bias_result(note_text: str, result: Dict[str, List[object]]) -> Dict[str, object]:
     enriched: Dict[str, object] = {
         "possible_terms": [],
         "likely_terms": [],
@@ -157,13 +235,29 @@ def enrich_bias_result(note_text: str, result: Dict[str, List[str]]) -> Dict[str
         seen_terms = set()
         seen_normalized = set()
         seen_categories = set()
-        details: List[Dict[str, str]] = []
+        details: List[Dict[str, object]] = []
         kept_terms: List[str] = []
         normalized_terms: List[str] = []
-        categories: List[str] = []
+        bucket_categories: List[str] = []
 
-        for term in result.get(bucket, []):
-            raw_term = re.sub(r"\s+", " ", str(term).strip())
+        for item in result.get(bucket, []):
+            if isinstance(item, dict):
+                raw_term = next(
+                    (
+                        re.sub(r"\s+", " ", str(item.get(key, "")).strip())
+                        for key in ("term", "phrase", "text")
+                        if str(item.get(key, "")).strip()
+                    ),
+                    "",
+                )
+                raw_categories = item.get("categories")
+                if raw_categories is None and item.get("category"):
+                    raw_categories = [item.get("category")]
+                elif isinstance(raw_categories, str):
+                    raw_categories = [raw_categories]
+            else:
+                raw_term = re.sub(r"\s+", " ", str(item).strip())
+                raw_categories = []
             if not raw_term or is_generic_false_positive(raw_term):
                 continue
 
@@ -172,29 +266,34 @@ def enrich_bias_result(note_text: str, result: Dict[str, List[str]]) -> Dict[str
                 continue
             seen_terms.add(normalized)
 
-            category = infer_bias_category(raw_term)
+            detail_categories = canonicalize_bias_categories(raw_categories or [])
+            if not detail_categories:
+                detail_categories = [infer_bias_category(raw_term)]
+            category = detail_categories[0]
             context = extract_term_context(note_text, raw_term)
 
             kept_terms.append(raw_term)
             if normalized not in seen_normalized:
                 normalized_terms.append(normalized)
                 seen_normalized.add(normalized)
-            if category not in seen_categories:
-                categories.append(category)
-                seen_categories.add(category)
+            for category_label in detail_categories:
+                if category_label not in seen_categories:
+                    bucket_categories.append(category_label)
+                    seen_categories.add(category_label)
 
             details.append(
                 {
                     "term": raw_term,
                     "normalized_term": normalized,
                     "category": category,
+                    "categories": detail_categories,
                     "context": context,
                 }
             )
 
         enriched[f"{bucket}_terms"] = kept_terms
         enriched[f"{bucket}_normalized_terms"] = normalized_terms
-        enriched[f"{bucket}_categories"] = categories
+        enriched[f"{bucket}_categories"] = bucket_categories
         enriched[f"{bucket}_details"] = details
 
     return enriched
