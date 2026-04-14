@@ -34,6 +34,7 @@ MANIFEST
 .env
 .env.*
 *.env.*
+!.env.example
 .venv/
 env/
 venv/
@@ -207,7 +208,7 @@ config.yaml
  
 .aider*
 *.ipynb_checkpoints/
-*.ipynb
+!*.ipynb
 *.xlsx
 *.csv
 *.xls

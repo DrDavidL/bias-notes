@@ -94,10 +94,13 @@ EXCLUSIONS (do not flag)
 - Neutral statements of informed refusal (e.g., "patient declines influenza vaccine after counseling").
 - Clinically necessary, respectful cultural context affecting care (e.g., "declines blood products for religious reasons").
 - Standard headers when used as section labels only.
+- Routine note scaffolding and section labels such as "Chief Complaint", "History of Present Illness", "Review of Systems", "Assessment", and "Plan".
 - Neutral pathophysiology descriptions (e.g., "hypertensive emergency," "diabetes is uncontrolled" as a clinical finding).
 - Time-bound actions: "The patient tried physical therapy", "The patient tried metformin" — concrete, time-limited actions.
 - Condition descriptions used as adjectives for medical conditions: "diabetic retinopathy", "diabetic neuropathy."
 - Any use of "normal" in clinical documentation — do not flag "normal" language of any kind (mental status, appearance, physiologic, or otherwise).
+- Neutral charting verbs and scaffolding such as "denies", "reports", "states", or "the patient" unless the surrounding phrase clearly questions credibility or carries stigma.
+- Procedural or anatomically descriptive phrases such as "difficult airway" or "difficult intubation" when they are clinically descriptive rather than judgmental.
 
 MATCHING RULES
 - Use the TERM_BANK below (case-insensitive). Also flag close variants (pluralization; hyphen/space/no-space variants).
@@ -109,6 +112,7 @@ MATCHING RULES
 - Effort-based language (trying, struggles, suffers): flag as "likely" — distinguish from time-bound actions like "tried metformin."
 - Outcome-judging language (controlled, poorly controlled): flag as "likely."
 - Do NOT flag any use of "normal" in clinical documentation (mental status, appearance, physiologic, or otherwise).
+- Return the smallest specific stigmatizing phrase. Do not return whole sentences when a shorter exact phrase is sufficient.
 - Be conservative: when truly ambiguous, prefer "possible" over "likely."
 
 OUTPUT
