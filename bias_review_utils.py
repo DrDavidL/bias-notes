@@ -52,7 +52,8 @@ ALLOWED_BIAS_CATEGORIES = [
     "other / review needed",
 ]
 _CANONICAL_CATEGORY_BY_KEY = {
-    re.sub(r"\s+", " ", label.strip()).lower(): label for label in ALLOWED_BIAS_CATEGORIES
+    re.sub(r"\s+", " ", label.strip()).lower(): label
+    for label in ALLOWED_BIAS_CATEGORIES
 }
 _CATEGORY_SYNONYMS = {
     "substance-related identity-based labels": "substance identity label",
@@ -63,7 +64,7 @@ _CATEGORY_SYNONYMS = {
     "substance-use judgmental language": "substance-use judgment",
     "questioning patient credibility": "credibility-doubting language",
     "difficult patient framing": "difficult-patient framing",
-    "\"difficult patient\" framing": "difficult-patient framing",
+    '"difficult patient" framing': "difficult-patient framing",
     "unilateral, authority-centered framing": "paternalistic framing",
     "social/behavioral risk assessments framed judgmentally": "judgmental social risk framing",
     "power/privilege descriptors used without clinical relevance": "power/privilege judgment",
@@ -75,7 +76,10 @@ _CATEGORY_SYNONYMS = {
 }
 
 _CATEGORY_PATTERNS = [
-    ("substance identity label", re.compile(r"\b(smoker|alcoholic|drug user)\b", re.IGNORECASE)),
+    (
+        "substance identity label",
+        re.compile(r"\b(smoker|alcoholic|drug user)\b", re.IGNORECASE),
+    ),
     (
         "condition identity label",
         re.compile(
@@ -103,7 +107,10 @@ _CATEGORY_PATTERNS = [
     ),
     (
         "outcome-judging language",
-        re.compile(r"\b(poorly controlled|well controlled|good control|borderline control|controlled)\b", re.IGNORECASE),
+        re.compile(
+            r"\b(poorly controlled|well controlled|good control|borderline control|controlled)\b",
+            re.IGNORECASE,
+        ),
     ),
     (
         "substance-use judgment",
@@ -114,7 +121,10 @@ _CATEGORY_PATTERNS = [
     ),
     (
         "behavior description",
-        re.compile(r"\b(aggressive|belligerent|combative|aggression|aggressively|combativeness)\b", re.IGNORECASE),
+        re.compile(
+            r"\b(aggressive|belligerent|combative|aggression|aggressively|combativeness)\b",
+            re.IGNORECASE,
+        ),
     ),
     (
         "credibility-doubting language",
@@ -122,11 +132,16 @@ _CATEGORY_PATTERNS = [
     ),
     (
         "difficult-patient framing",
-        re.compile(r"\b(difficult patient|drug-seeking|malingerer|manipulative|complainer|frequent fl(?:y|i)er)\b", re.IGNORECASE),
+        re.compile(
+            r"\b(difficult patient|drug-seeking|malingerer|manipulative|complainer|frequent fl(?:y|i)er)\b",
+            re.IGNORECASE,
+        ),
     ),
     (
         "paternalistic framing",
-        re.compile(r"\b(was instructed to|was told to|not allowed to)\b", re.IGNORECASE),
+        re.compile(
+            r"\b(was instructed to|was told to|not allowed to)\b", re.IGNORECASE
+        ),
     ),
     ("ageism", re.compile(r"\b(the elderly|elderly|senile|demented)\b", re.IGNORECASE)),
     ("language-bias framing", re.compile(r"\b(non-english speaking)\b", re.IGNORECASE)),
@@ -186,7 +201,11 @@ def _split_sentences(note_text: str) -> List[str]:
     normalized = re.sub(r"\s+", " ", note_text).strip()
     if not normalized:
         return []
-    return [segment.strip() for segment in _SENTENCE_SPLIT_RE.split(normalized) if segment.strip()]
+    return [
+        segment.strip()
+        for segment in _SENTENCE_SPLIT_RE.split(normalized)
+        if segment.strip()
+    ]
 
 
 def extract_term_context(note_text: str, term: str, fallback_radius: int = 120) -> str:
@@ -218,7 +237,9 @@ def count_note_words(note_text: str) -> int:
     return len(re.findall(r"\b\w+\b", note_text))
 
 
-def enrich_bias_result(note_text: str, result: Dict[str, List[object]]) -> Dict[str, object]:
+def enrich_bias_result(
+    note_text: str, result: Dict[str, List[object]]
+) -> Dict[str, object]:
     enriched: Dict[str, object] = {
         "possible_terms": [],
         "likely_terms": [],

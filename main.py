@@ -78,7 +78,9 @@ def parse_json_list(value) -> List[str]:
 def normalize_term_string(value: str) -> str:
     if pd.isna(value) or not str(value).strip():
         return ""
-    return ", ".join(sorted({item.strip().lower() for item in str(value).split(",") if item.strip()}))
+    return ", ".join(
+        sorted({item.strip().lower() for item in str(value).split(",") if item.strip()})
+    )
 
 
 def get_note_id_column(df: pd.DataFrame) -> str:
@@ -134,7 +136,9 @@ def run_shared_llm_review(
     pipeline = AzureBiasPipeline(
         client,
         AzureBiasPipelineConfig(
-            prompt_path=os.path.join(os.path.dirname(__file__), "bias_detection_prompt.py"),
+            prompt_path=os.path.join(
+                os.path.dirname(__file__), "bias_detection_prompt.py"
+            ),
             model_for_api=model_for_api,
             temperature=1 if "gpt-5" in model_for_api.lower() else 0,
             cache_path=APP_CACHE_PATH,
@@ -295,7 +299,9 @@ if check_password():
         st.markdown("#### 3. LLM Review via Shared Azure Pipeline")
         notes_df = st.session_state.get("notes_df")
         if notes_df is not None and st.button("Analyze notes with shared pipeline"):
-            reviewed = run_shared_llm_review(notes_df, client, model_for_api, api_version)
+            reviewed = run_shared_llm_review(
+                notes_df, client, model_for_api, api_version
+            )
             st.session_state["notes_df"] = reviewed
             st.success("LLM review complete.")
             preview_cols = [
@@ -336,7 +342,10 @@ if check_password():
             st.write(f"Notes flagged by LLM: {llm_hits} / {total}")
             st.write(f"Exact set matches (manual vs LLM): {exact_matches} / {total}")
 
-            if "Likely_Bias_Count" in notes_df.columns and "Possible_Bias_Count" in notes_df.columns:
+            if (
+                "Likely_Bias_Count" in notes_df.columns
+                and "Possible_Bias_Count" in notes_df.columns
+            ):
                 st.write(
                     f"Total likely bias flags: {int(notes_df['Likely_Bias_Count'].sum())}"
                 )

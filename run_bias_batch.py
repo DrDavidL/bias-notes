@@ -117,7 +117,9 @@ def get_model_for_api() -> str:
 
 
 def create_client() -> AzureOpenAI:
-    api_version = require_setting(os.getenv("AZURE_API_VERSION"), "Missing AZURE_API_VERSION in .env.")
+    api_version = require_setting(
+        os.getenv("AZURE_API_VERSION"), "Missing AZURE_API_VERSION in .env."
+    )
     azure_endpoint = require_setting(
         os.getenv("AZURE_OPENAI_ENDPOINT"),
         "Missing AZURE_OPENAI_ENDPOINT in .env.",
@@ -126,7 +128,9 @@ def create_client() -> AzureOpenAI:
         os.getenv("AZURE_SUBSCRIPTION_KEY"),
         "Missing AZURE_SUBSCRIPTION_KEY in .env.",
     )
-    return AzureOpenAI(api_version=api_version, azure_endpoint=azure_endpoint, api_key=api_key)
+    return AzureOpenAI(
+        api_version=api_version, azure_endpoint=azure_endpoint, api_key=api_key
+    )
 
 
 def select_rows(
@@ -141,7 +145,9 @@ def select_rows(
 
     n_to_process = min(charts_to_process, total_rows)
     if selection == "random" and n_to_process < total_rows:
-        selected = df_full.sample(n=n_to_process, random_state=seed).reset_index(drop=True)
+        selected = df_full.sample(n=n_to_process, random_state=seed).reset_index(
+            drop=True
+        )
         return selected, f"random sample (seed={seed})"
 
     selected = df_full.head(n_to_process).reset_index(drop=True)
@@ -196,17 +202,25 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Random seed: {args.seed}")
         if not args.skip_notebook_check:
             print("Notebook hygiene check: passed")
-        preview_cols = [column for column in ("unique_id", "patient_study_id", "Dax_or_Human") if column in df.columns]
+        preview_cols = [
+            column
+            for column in ("unique_id", "patient_study_id", "Dax_or_Human")
+            if column in df.columns
+        ]
         if preview_cols:
             print("\nSelected row preview:")
             print(df[preview_cols].head(min(len(df), 10)).to_string(index=False))
         else:
-            print("\nSelected row preview unavailable because no preview columns are present.")
+            print(
+                "\nSelected row preview unavailable because no preview columns are present."
+            )
         return 0
 
     output_csv = generate_output_path(output_dir, args.output_prefix)
     chunk_failure_log_path = (
-        output_csv[:-4] + "_chunk_failures.jsonl" if output_csv.lower().endswith(".csv") else output_csv + "_chunk_failures.jsonl"
+        output_csv[:-4] + "_chunk_failures.jsonl"
+        if output_csv.lower().endswith(".csv")
+        else output_csv + "_chunk_failures.jsonl"
     )
     pipeline = AzureBiasPipeline(
         create_client(),
@@ -261,8 +275,12 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Total notes: {len(processed)}")
     print(f"Possible bias flags kept: {int(processed['Possible_Bias_Count'].sum())}")
     print(f"Likely bias flags kept: {int(processed['Likely_Bias_Count'].sum())}")
-    print(f"Notes with chunk failures: {int((processed['Chunk_Failure_Count'] > 0).sum())}")
-    print(f"Total time: {total_time:.1f}s ({total_time / len(processed):.1f}s per note)")
+    print(
+        f"Notes with chunk failures: {int((processed['Chunk_Failure_Count'] > 0).sum())}"
+    )
+    print(
+        f"Total time: {total_time:.1f}s ({total_time / len(processed):.1f}s per note)"
+    )
     if not args.skip_notebook_check:
         print("Notebook hygiene check: passed after run")
     return 0

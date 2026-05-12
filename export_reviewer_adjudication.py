@@ -24,7 +24,9 @@ def main() -> None:
     args = parser.parse_args()
 
     results_path = Path(args.results_file)
-    output_path = Path(args.output) if args.output else default_output_path(results_path)
+    output_path = (
+        Path(args.output) if args.output else default_output_path(results_path)
+    )
 
     df = pd.read_csv(results_path)
     adjudication_df = build_reviewer_adjudication_dataframe(df)

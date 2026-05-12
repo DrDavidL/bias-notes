@@ -14,7 +14,11 @@ from typing import Dict, List, Optional
 import pandas as pd
 from openai import AzureOpenAI
 
-from bias_review_utils import ALLOWED_BIAS_CATEGORIES, canonicalize_bias_categories, enrich_bias_result
+from bias_review_utils import (
+    ALLOWED_BIAS_CATEGORIES,
+    canonicalize_bias_categories,
+    enrich_bias_result,
+)
 
 
 PIPELINE_VERSION = "2026-04-14-structured-categories-v3"
@@ -107,7 +111,9 @@ _PHYSIOLOGIC_NORMAL_PATTERNS = [
     r"(?:skin|nails?|hair)\s*(?::|are|is)?\s*normal",
     r"normal\s+(?:skin|nails?|hair)",
 ]
-_PHYSIOLOGIC_RE = re.compile("|".join(f"(?:{p})" for p in _PHYSIOLOGIC_NORMAL_PATTERNS), re.IGNORECASE)
+_PHYSIOLOGIC_RE = re.compile(
+    "|".join(f"(?:{p})" for p in _PHYSIOLOGIC_NORMAL_PATTERNS), re.IGNORECASE
+)
 _KEEP_PATTERNS = re.compile(
     r"(?:mood|behavior|behaviour|judgment|thought\s+content|thought\s+process|mental\s+status|attention|perception|affect|appearance|gait|weight)",
     re.IGNORECASE,
@@ -130,7 +136,10 @@ _STRUCTURED_OUTPUT_SCHEMA = {
                         "term": {"type": "string"},
                         "categories": {
                             "type": "array",
-                            "items": {"type": "string", "enum": ALLOWED_BIAS_CATEGORIES},
+                            "items": {
+                                "type": "string",
+                                "enum": ALLOWED_BIAS_CATEGORIES,
+                            },
                         },
                     },
                     "required": ["term", "categories"],
@@ -145,7 +154,10 @@ _STRUCTURED_OUTPUT_SCHEMA = {
                         "term": {"type": "string"},
                         "categories": {
                             "type": "array",
-                            "items": {"type": "string", "enum": ALLOWED_BIAS_CATEGORIES},
+                            "items": {
+                                "type": "string",
+                                "enum": ALLOWED_BIAS_CATEGORIES,
+                            },
                         },
                     },
                     "required": ["term", "categories"],
@@ -204,7 +216,9 @@ def chunk_by_sentences(text: str, max_chars: int) -> List[str]:
     if not isinstance(text, str) or not text.strip():
         return []
     normalized = re.sub(r"\s+", " ", text).strip()
-    sentences = [part.strip() for part in _SENT_SPLIT_RE.split(normalized) if part.strip()]
+    sentences = [
+        part.strip() for part in _SENT_SPLIT_RE.split(normalized) if part.strip()
+    ]
     if not sentences:
         return []
 
@@ -243,10 +257,14 @@ def inject_chunk_into_prompt(prompt_text: str, chunk_text: str) -> str:
 
             return re.sub(pattern, _replace, prompt_text, count=1)
 
-    block_re = re.compile(r"(INPUT\s+NOTE\s+CHUNK.*?<<<)([\s\S]*?)(>>>)([\s\S]*)", re.IGNORECASE)
+    block_re = re.compile(
+        r"(INPUT\s+NOTE\s+CHUNK.*?<<<)([\s\S]*?)(>>>)([\s\S]*)", re.IGNORECASE
+    )
     match = block_re.search(prompt_text)
     if match:
-        return match.group(1) + "\n" + chunk_text + "\n" + match.group(3) + match.group(4)
+        return (
+            match.group(1) + "\n" + chunk_text + "\n" + match.group(3) + match.group(4)
+        )
     return f"{prompt_text.rstrip()}\n\nINPUT NOTE CHUNK\n<<<\n{chunk_text}\n>>>"
 
 
@@ -302,7 +320,9 @@ def _collect_detail_categories(detail: Dict[str, object]) -> List[str]:
     raw_categories = detail.get("categories", [])
     if isinstance(raw_categories, str):
         raw_categories = [raw_categories]
-    categories = canonicalize_bias_categories(raw_categories if isinstance(raw_categories, list) else [])
+    categories = canonicalize_bias_categories(
+        raw_categories if isinstance(raw_categories, list) else []
+    )
     if categories:
         return categories
 
@@ -392,13 +412,15 @@ def postprocess_results(result: Dict[str, List[object]]) -> Dict[str, List[objec
             normalized_item
             for item in result["possible"]
             for normalized_item in [_normalize_result_entry(item)]
-            if normalized_item and not is_physiologic_false_positive(_extract_result_term(normalized_item))
+            if normalized_item
+            and not is_physiologic_false_positive(_extract_result_term(normalized_item))
         ],
         "likely": [
             normalized_item
             for item in result["likely"]
             for normalized_item in [_normalize_result_entry(item)]
-            if normalized_item and not is_physiologic_false_positive(_extract_result_term(normalized_item))
+            if normalized_item
+            and not is_physiologic_false_positive(_extract_result_term(normalized_item))
         ],
     }
 
@@ -412,7 +434,9 @@ class AzureBiasPipeline:
         self._cache_lock = Lock()
         self._chunk_cache: Dict[str, Dict[str, List[object]]] = {}
         self._hallucinations_dropped_count: int = 0
-        self._hallucination_guard_verbose: bool = os.getenv("BIAS_HALLUCINATION_GUARD_VERBOSE", "").lower() in ("1", "true", "yes")
+        self._hallucination_guard_verbose: bool = os.getenv(
+            "BIAS_HALLUCINATION_GUARD_VERBOSE", ""
+        ).lower() in ("1", "true", "yes")
         self._note_cache = self._load_note_cache(config.cache_path)
         self._current_note_hash = ""
         self._last_chunk_failures: List[Dict[str, object]] = []
@@ -420,7 +444,9 @@ class AzureBiasPipeline:
         self._structured_outputs_disabled_reason = ""
 
     def _sleep_backoff(self, attempt: int) -> None:
-        delay = self.config.sleep_base_sec * (2 ** (attempt - 1)) * random.uniform(0.7, 1.3)
+        delay = (
+            self.config.sleep_base_sec * (2 ** (attempt - 1)) * random.uniform(0.7, 1.3)
+        )
         time.sleep(delay)
 
     @staticmethod
@@ -443,7 +469,9 @@ class AzureBiasPipeline:
             return int(value)
         return value
 
-    def _load_note_cache(self, cache_path: Optional[str]) -> Dict[str, Dict[str, object]]:
+    def _load_note_cache(
+        self, cache_path: Optional[str]
+    ) -> Dict[str, Dict[str, object]]:
         if not cache_path or not os.path.exists(cache_path):
             return {}
         try:
@@ -533,7 +561,9 @@ class AzureBiasPipeline:
             or ("invalid parameter" in message and "response_format" in message)
         )
 
-    def _create_completion(self, user_content: str, response_format: Optional[Dict[str, object]] = None):
+    def _create_completion(
+        self, user_content: str, response_format: Optional[Dict[str, object]] = None
+    ):
         request_kwargs = {
             "model": self.config.model_for_api,
             "messages": [{"role": "user", "content": user_content}],
@@ -553,7 +583,9 @@ class AzureBiasPipeline:
                 **request_kwargs,
             )
 
-    def call_model_on_chunk(self, chunk_text: str, chunk_index: int = -1) -> Dict[str, List[object]]:
+    def call_model_on_chunk(
+        self, chunk_text: str, chunk_index: int = -1
+    ) -> Dict[str, List[object]]:
         cache_key = chunk_text.strip()
         if self.config.cache_chunk_responses and cache_key:
             with self._cache_lock:
@@ -575,7 +607,10 @@ class AzureBiasPipeline:
                         if self._structured_outputs_enabled:
                             response = self._create_completion(
                                 user_content,
-                                response_format={"type": "json_schema", "json_schema": _STRUCTURED_OUTPUT_SCHEMA},
+                                response_format={
+                                    "type": "json_schema",
+                                    "json_schema": _STRUCTURED_OUTPUT_SCHEMA,
+                                },
                             )
                         else:
                             response = self._create_completion(user_content)
@@ -583,11 +618,15 @@ class AzureBiasPipeline:
                         if (
                             self._structured_outputs_enabled
                             and self.config.structured_outputs_fallback_to_prompt_json
-                            and self._should_fallback_from_structured_outputs(structured_error)
+                            and self._should_fallback_from_structured_outputs(
+                                structured_error
+                            )
                         ):
                             self._structured_outputs_enabled = False
                             if not self._structured_outputs_disabled_reason:
-                                self._structured_outputs_disabled_reason = str(structured_error)
+                                self._structured_outputs_disabled_reason = str(
+                                    structured_error
+                                )
                                 print(
                                     "[INFO] Structured outputs unavailable for this deployment/session; "
                                     "falling back to prompt-guided JSON parsing."
@@ -625,9 +664,13 @@ class AzureBiasPipeline:
                 # filter before the chunk result is cached/returned.
                 result, dropped = filter_hallucinated_terms(result, chunk_text)
                 if dropped and self._hallucination_guard_verbose:
-                    sample = ", ".join(f'{d["bucket"]}:"{d["term"]}"' for d in dropped[:5])
+                    sample = ", ".join(
+                        f'{d["bucket"]}:"{d["term"]}"' for d in dropped[:5]
+                    )
                     extra = f" (+{len(dropped) - 5} more)" if len(dropped) > 5 else ""
-                    print(f"[GUARD] Chunk {chunk_index}: dropped {len(dropped)} hallucinated term(s): {sample}{extra}")
+                    print(
+                        f"[GUARD] Chunk {chunk_index}: dropped {len(dropped)} hallucinated term(s): {sample}{extra}"
+                    )
                 self._hallucinations_dropped_count += len(dropped)
                 if self.config.cache_chunk_responses and cache_key:
                     with self._cache_lock:
@@ -641,12 +684,18 @@ class AzureBiasPipeline:
                 if attempt < self.config.max_retries:
                     self._sleep_backoff(attempt)
 
-        print(f"[WARN] Failed chunk after {self.config.max_retries} attempts: {last_err}")
+        print(
+            f"[WARN] Failed chunk after {self.config.max_retries} attempts: {last_err}"
+        )
         if last_err is not None:
-            self._record_chunk_failure(chunk_index, chunk_text, last_err, last_response_text)
+            self._record_chunk_failure(
+                chunk_index, chunk_text, last_err, last_response_text
+            )
         return {"possible": [], "likely": []}
 
-    def adjudicate_ambiguous_terms(self, note_text: str, enriched: Dict[str, object]) -> Dict[str, object]:
+    def adjudicate_ambiguous_terms(
+        self, note_text: str, enriched: Dict[str, object]
+    ) -> Dict[str, object]:
         if not self.config.enable_second_pass_adjudication:
             return enriched
 
@@ -676,13 +725,22 @@ class AzureBiasPipeline:
                 }
                 for detail in ambiguous
             ],
-            "output_schema": {"decisions": [{"term": "<term>", "decision": "keep_possible|move_likely|drop"}]},
+            "output_schema": {
+                "decisions": [
+                    {"term": "<term>", "decision": "keep_possible|move_likely|drop"}
+                ]
+            },
         }
 
         try:
             response = self.client.chat.completions.create(
                 model=self.config.model_for_api,
-                messages=[{"role": "user", "content": json.dumps(adjudication_prompt, ensure_ascii=False)}],
+                messages=[
+                    {
+                        "role": "user",
+                        "content": json.dumps(adjudication_prompt, ensure_ascii=False),
+                    }
+                ],
                 max_completion_tokens=512,
                 temperature=0,
             )
@@ -713,15 +771,29 @@ class AzureBiasPipeline:
 
         enriched["possible_details"] = possible_details_kept
         enriched["likely_details"] = likely_details
-        enriched["possible_terms"] = [detail["term"] for detail in possible_details_kept]
+        enriched["possible_terms"] = [
+            detail["term"] for detail in possible_details_kept
+        ]
         enriched["likely_terms"] = [detail["term"] for detail in likely_details]
-        enriched["possible_normalized_terms"] = list(dict.fromkeys(detail["normalized_term"] for detail in possible_details_kept))
-        enriched["likely_normalized_terms"] = list(dict.fromkeys(detail["normalized_term"] for detail in likely_details))
+        enriched["possible_normalized_terms"] = list(
+            dict.fromkeys(detail["normalized_term"] for detail in possible_details_kept)
+        )
+        enriched["likely_normalized_terms"] = list(
+            dict.fromkeys(detail["normalized_term"] for detail in likely_details)
+        )
         enriched["possible_categories"] = list(
-            dict.fromkeys(category for detail in possible_details_kept for category in _collect_detail_categories(detail))
+            dict.fromkeys(
+                category
+                for detail in possible_details_kept
+                for category in _collect_detail_categories(detail)
+            )
         )
         enriched["likely_categories"] = list(
-            dict.fromkeys(category for detail in likely_details for category in _collect_detail_categories(detail))
+            dict.fromkeys(
+                category
+                for detail in likely_details
+                for category in _collect_detail_categories(detail)
+            )
         )
         return enriched
 
@@ -736,23 +808,34 @@ class AzureBiasPipeline:
 
         if self.config.parallel_calls > 1 and len(chunks) > 1:
             results_by_idx: Dict[int, Dict[str, List[object]]] = {}
-            with concurrent.futures.ThreadPoolExecutor(max_workers=self.config.parallel_calls) as executor:
+            with concurrent.futures.ThreadPoolExecutor(
+                max_workers=self.config.parallel_calls
+            ) as executor:
                 future_map = {
-                    executor.submit(self.call_model_on_chunk, chunk, idx): idx for idx, chunk in enumerate(chunks)
+                    executor.submit(self.call_model_on_chunk, chunk, idx): idx
+                    for idx, chunk in enumerate(chunks)
                 }
                 for future in concurrent.futures.as_completed(future_map):
                     idx = future_map[future]
                     try:
-                        results_by_idx[idx] = future.result() or {"possible": [], "likely": []}
+                        results_by_idx[idx] = future.result() or {
+                            "possible": [],
+                            "likely": [],
+                        }
                     except Exception:
                         results_by_idx[idx] = {"possible": [], "likely": []}
             return self._merge_chunk_results(chunks, results_by_idx)
 
-        sequential_results = {idx: self.call_model_on_chunk(chunk, idx) for idx, chunk in enumerate(chunks)}
+        sequential_results = {
+            idx: self.call_model_on_chunk(chunk, idx)
+            for idx, chunk in enumerate(chunks)
+        }
         return self._merge_chunk_results(chunks, sequential_results)
 
     @staticmethod
-    def _merge_chunk_results(chunks: List[str], results_by_idx: Dict[int, Dict[str, List[object]]]) -> Dict[str, List[object]]:
+    def _merge_chunk_results(
+        chunks: List[str], results_by_idx: Dict[int, Dict[str, List[object]]]
+    ) -> Dict[str, List[object]]:
         aggregated: Dict[str, List[object]] = {"possible": [], "likely": []}
 
         for bucket in ("possible", "likely"):
@@ -773,7 +856,10 @@ class AzureBiasPipeline:
 
                     categories = _extract_result_categories(normalized_item)
                     if key not in merged_by_key:
-                        merged_by_key[key] = {"term": term, "categories": list(categories)}
+                        merged_by_key[key] = {
+                            "term": term,
+                            "categories": list(categories),
+                        }
                         ordered_keys.append(key)
                         continue
 
@@ -783,7 +869,10 @@ class AzureBiasPipeline:
                             existing_categories.append(category)
 
             aggregated[bucket] = [
-                {"term": merged_by_key[key]["term"], "categories": list(merged_by_key[key]["categories"])}
+                {
+                    "term": merged_by_key[key]["term"],
+                    "categories": list(merged_by_key[key]["categories"]),
+                }
                 if merged_by_key[key]["categories"]
                 else str(merged_by_key[key]["term"])
                 for key in ordered_keys
@@ -791,7 +880,9 @@ class AzureBiasPipeline:
 
         return aggregated
 
-    def process_dataframe(self, df: pd.DataFrame, text_column: str = "note_text") -> pd.DataFrame:
+    def process_dataframe(
+        self, df: pd.DataFrame, text_column: str = "note_text"
+    ) -> pd.DataFrame:
         if text_column not in df.columns:
             raise ValueError(f"Input data must contain a '{text_column}' column.")
 
@@ -817,7 +908,9 @@ class AzureBiasPipeline:
         start_time = time.time()
         cache_hits = 0
         total_rows = len(processed)
-        for processed_idx, (row_idx, note_text) in enumerate(processed[text_column].items(), start=1):
+        for processed_idx, (row_idx, note_text) in enumerate(
+            processed[text_column].items(), start=1
+        ):
             note_hash = self._note_hash(note_text)
             cached_payload = self._cached_note_payload(note_hash)
             if cached_payload is not None:
@@ -831,23 +924,37 @@ class AzureBiasPipeline:
                 enriched = enrich_bias_result(note_text, result)
                 enriched = self.adjudicate_ambiguous_terms(note_text, enriched)
                 payload = {
-                    "Possible_Biased_Terms": json.dumps(enriched["possible_terms"], ensure_ascii=False),
-                    "Likely_Biased_Terms": json.dumps(enriched["likely_terms"], ensure_ascii=False),
+                    "Possible_Biased_Terms": json.dumps(
+                        enriched["possible_terms"], ensure_ascii=False
+                    ),
+                    "Likely_Biased_Terms": json.dumps(
+                        enriched["likely_terms"], ensure_ascii=False
+                    ),
                     "Possible_Biased_Terms_Normalized": json.dumps(
                         enriched["possible_normalized_terms"], ensure_ascii=False
                     ),
                     "Likely_Biased_Terms_Normalized": json.dumps(
                         enriched["likely_normalized_terms"], ensure_ascii=False
                     ),
-                    "Possible_Bias_Categories": json.dumps(enriched["possible_categories"], ensure_ascii=False),
-                    "Likely_Bias_Categories": json.dumps(enriched["likely_categories"], ensure_ascii=False),
-                    "Possible_Bias_Details": json.dumps(enriched["possible_details"], ensure_ascii=False),
-                    "Likely_Bias_Details": json.dumps(enriched["likely_details"], ensure_ascii=False),
+                    "Possible_Bias_Categories": json.dumps(
+                        enriched["possible_categories"], ensure_ascii=False
+                    ),
+                    "Likely_Bias_Categories": json.dumps(
+                        enriched["likely_categories"], ensure_ascii=False
+                    ),
+                    "Possible_Bias_Details": json.dumps(
+                        enriched["possible_details"], ensure_ascii=False
+                    ),
+                    "Likely_Bias_Details": json.dumps(
+                        enriched["likely_details"], ensure_ascii=False
+                    ),
                     "Possible_Bias_Count": len(enriched["possible_terms"]),
                     "Likely_Bias_Count": len(enriched["likely_terms"]),
                     "Note_Word_Count": enriched["note_word_count"],
                     "Chunk_Failure_Count": len(chunk_failures),
-                    "Chunk_Failure_Details": json.dumps(chunk_failures, ensure_ascii=False),
+                    "Chunk_Failure_Details": json.dumps(
+                        chunk_failures, ensure_ascii=False
+                    ),
                     "Prompt_Version": self.config.prompt_version,
                     "Pipeline_Version": self.config.pipeline_version,
                     "Model_Used": self.config.model_for_api,
@@ -869,11 +976,15 @@ class AzureBiasPipeline:
 
         self._write_note_cache()
         print(f"  Cache hits: {cache_hits}/{total_rows}")
-        print(f"  Hallucination guard dropped: {self._hallucinations_dropped_count} model-emitted term(s) absent from source")
+        print(
+            f"  Hallucination guard dropped: {self._hallucinations_dropped_count} model-emitted term(s) absent from source"
+        )
         return processed
 
 
-def build_analysis_ready_dataframe(df: pd.DataFrame, text_column: str = "note_text") -> pd.DataFrame:
+def build_analysis_ready_dataframe(
+    df: pd.DataFrame, text_column: str = "note_text"
+) -> pd.DataFrame:
     analysis_ready = df.copy()
     drop_columns = [
         column
@@ -911,7 +1022,9 @@ def build_reviewer_adjudication_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     rows: List[Dict[str, object]] = []
 
     for row_index, row in df.iterrows():
-        source_note_id = row[note_id_column] if note_id_column in row.index else row_index
+        source_note_id = (
+            row[note_id_column] if note_id_column in row.index else row_index
+        )
         shared_fields = {
             "source_id_column": note_id_column,
             "source_note_id": source_note_id,
@@ -936,12 +1049,18 @@ def build_reviewer_adjudication_dataframe(df: pd.DataFrame) -> pd.DataFrame:
             details = parse_json_list(row.get(f"{bucket.title()}_Bias_Details", "[]"))
             if not details:
                 terms = parse_json_list(row.get(f"{bucket.title()}_Biased_Terms", "[]"))
-                normalized_terms = parse_json_list(row.get(f"{bucket.title()}_Biased_Terms_Normalized", "[]"))
-                categories = parse_json_list(row.get(f"{bucket.title()}_Bias_Categories", "[]"))
+                normalized_terms = parse_json_list(
+                    row.get(f"{bucket.title()}_Biased_Terms_Normalized", "[]")
+                )
+                categories = parse_json_list(
+                    row.get(f"{bucket.title()}_Bias_Categories", "[]")
+                )
                 details = [
                     {
                         "term": term,
-                        "normalized_term": normalized_terms[idx] if idx < len(normalized_terms) else str(term).lower(),
+                        "normalized_term": normalized_terms[idx]
+                        if idx < len(normalized_terms)
+                        else str(term).lower(),
                         "category": categories[idx] if idx < len(categories) else "",
                         "context": "",
                     }
@@ -949,14 +1068,19 @@ def build_reviewer_adjudication_dataframe(df: pd.DataFrame) -> pd.DataFrame:
                 ]
 
             for detail in details:
-                detail_categories = _collect_detail_categories(detail) if isinstance(detail, dict) else []
+                detail_categories = (
+                    _collect_detail_categories(detail)
+                    if isinstance(detail, dict)
+                    else []
+                )
                 rows.append(
                     {
                         **shared_fields,
                         "model_bucket": bucket,
                         "model_term": detail.get("term", ""),
                         "normalized_term": detail.get("normalized_term", ""),
-                        "model_category": detail.get("category", "") or " | ".join(detail_categories),
+                        "model_category": detail.get("category", "")
+                        or " | ".join(detail_categories),
                         "term_context": detail.get("context", ""),
                     }
                 )
@@ -990,13 +1114,25 @@ def build_reviewer_adjudication_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     )
 
 
-def write_output_bundle(df: pd.DataFrame, output_csv: str, text_column: str = "note_text") -> Dict[str, str]:
+def write_output_bundle(
+    df: pd.DataFrame, output_csv: str, text_column: str = "note_text"
+) -> Dict[str, str]:
     reviewer_path = output_csv
-    analysis_path = output_csv[:-4] + "_analysis_ready.csv" if output_csv.lower().endswith(".csv") else output_csv + "_analysis_ready.csv"
-    adjudication_path = output_csv[:-4] + "_reviewer_adjudication.csv" if output_csv.lower().endswith(".csv") else output_csv + "_reviewer_adjudication.csv"
+    analysis_path = (
+        output_csv[:-4] + "_analysis_ready.csv"
+        if output_csv.lower().endswith(".csv")
+        else output_csv + "_analysis_ready.csv"
+    )
+    adjudication_path = (
+        output_csv[:-4] + "_reviewer_adjudication.csv"
+        if output_csv.lower().endswith(".csv")
+        else output_csv + "_reviewer_adjudication.csv"
+    )
 
     df.to_csv(reviewer_path, index=False)
-    build_analysis_ready_dataframe(df, text_column=text_column).to_csv(analysis_path, index=False)
+    build_analysis_ready_dataframe(df, text_column=text_column).to_csv(
+        analysis_path, index=False
+    )
     build_reviewer_adjudication_dataframe(df).to_csv(adjudication_path, index=False)
 
     return {

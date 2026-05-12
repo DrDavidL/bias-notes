@@ -24,7 +24,12 @@ class ExportReviewerAdjudicationTests(unittest.TestCase):
             pd.DataFrame(rows).to_csv(input_path, index=False)
 
             previous_argv = sys.argv
-            sys.argv = ["export_reviewer_adjudication.py", str(input_path), "--output", str(output_path)]
+            sys.argv = [
+                "export_reviewer_adjudication.py",
+                str(input_path),
+                "--output",
+                str(output_path),
+            ]
             try:
                 export_reviewer_adjudication.main()
             finally:

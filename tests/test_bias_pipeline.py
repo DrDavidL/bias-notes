@@ -48,8 +48,15 @@ class BiasPipelineTests(unittest.TestCase):
         def analyze_note_text(self, full_text: str):
             self.analyze_calls += 1
             return {
-                "possible": [{"term": "obese", "categories": ["weight-based identity label"]}],
-                "likely": [{"term": "difficult patient", "categories": ["difficult-patient framing"]}],
+                "possible": [
+                    {"term": "obese", "categories": ["weight-based identity label"]}
+                ],
+                "likely": [
+                    {
+                        "term": "difficult patient",
+                        "categories": ["difficult-patient framing"],
+                    }
+                ],
             }
 
     def test_chunk_by_sentences_respects_boundaries(self):
@@ -62,14 +69,35 @@ class BiasPipelineTests(unittest.TestCase):
 
     def test_postprocess_results_filters_physiologic_normal_language(self):
         result = {
-            "possible": ["normal", "normal breath sounds", {"term": "obese", "categories": ["weight-based identity label"]}],
-            "likely": [{"term": "difficult patient", "categories": ["difficult-patient framing"]}, "mood and affect congruent"],
+            "possible": [
+                "normal",
+                "normal breath sounds",
+                {"term": "obese", "categories": ["weight-based identity label"]},
+            ],
+            "likely": [
+                {
+                    "term": "difficult patient",
+                    "categories": ["difficult-patient framing"],
+                },
+                "mood and affect congruent",
+            ],
         }
 
         filtered = postprocess_results(result)
 
-        self.assertEqual(filtered["possible"], [{"term": "obese", "categories": ["weight-based identity label"]}])
-        self.assertEqual(filtered["likely"], [{"term": "difficult patient", "categories": ["difficult-patient framing"]}])
+        self.assertEqual(
+            filtered["possible"],
+            [{"term": "obese", "categories": ["weight-based identity label"]}],
+        )
+        self.assertEqual(
+            filtered["likely"],
+            [
+                {
+                    "term": "difficult patient",
+                    "categories": ["difficult-patient framing"],
+                }
+            ],
+        )
 
     def test_parse_model_response_text_salvages_first_json_object(self):
         parsed = _parse_model_response_text(
@@ -78,7 +106,12 @@ class BiasPipelineTests(unittest.TestCase):
 
         self.assertEqual(
             parsed,
-            {"possible": [{"term": "obese", "categories": ["weight-based identity label"]}], "likely": []},
+            {
+                "possible": [
+                    {"term": "obese", "categories": ["weight-based identity label"]}
+                ],
+                "likely": [],
+            },
         )
 
     def test_call_model_on_chunk_prefers_structured_outputs(self):
@@ -106,11 +139,18 @@ class BiasPipelineTests(unittest.TestCase):
             ),
         )
 
-        result = pipeline.call_model_on_chunk("This is a difficult patient.", chunk_index=0)
+        result = pipeline.call_model_on_chunk(
+            "This is a difficult patient.", chunk_index=0
+        )
 
         self.assertEqual(
             result["likely"],
-            [{"term": "difficult patient", "categories": ["difficult-patient framing"]}],
+            [
+                {
+                    "term": "difficult patient",
+                    "categories": ["difficult-patient framing"],
+                }
+            ],
         )
         self.assertEqual(captured_kwargs[0]["response_format"]["type"], "json_schema")
         self.assertTrue(captured_kwargs[0]["response_format"]["json_schema"]["strict"])
@@ -142,16 +182,30 @@ class BiasPipelineTests(unittest.TestCase):
             ),
         )
 
-        first_result = pipeline.call_model_on_chunk("This is a difficult patient.", chunk_index=0)
-        second_result = pipeline.call_model_on_chunk("Another difficult patient.", chunk_index=1)
+        first_result = pipeline.call_model_on_chunk(
+            "This is a difficult patient.", chunk_index=0
+        )
+        second_result = pipeline.call_model_on_chunk(
+            "Another difficult patient.", chunk_index=1
+        )
 
         self.assertEqual(
             first_result["likely"],
-            [{"term": "difficult patient", "categories": ["difficult-patient framing"]}],
+            [
+                {
+                    "term": "difficult patient",
+                    "categories": ["difficult-patient framing"],
+                }
+            ],
         )
         self.assertEqual(
             second_result["likely"],
-            [{"term": "difficult patient", "categories": ["difficult-patient framing"]}],
+            [
+                {
+                    "term": "difficult patient",
+                    "categories": ["difficult-patient framing"],
+                }
+            ],
         )
         self.assertIn("response_format", captured_kwargs[0])
         self.assertNotIn("response_format", captured_kwargs[1])
@@ -249,18 +303,36 @@ class BiasPipelineTests(unittest.TestCase):
             {
                 0: {
                     "possible": [],
-                    "likely": [{"term": "obese", "categories": ["weight-based identity label"]}],
+                    "likely": [
+                        {"term": "obese", "categories": ["weight-based identity label"]}
+                    ],
                 },
                 1: {
                     "possible": [],
-                    "likely": [{"term": "obese", "categories": ["condition identity label", "weight-based identity label"]}],
+                    "likely": [
+                        {
+                            "term": "obese",
+                            "categories": [
+                                "condition identity label",
+                                "weight-based identity label",
+                            ],
+                        }
+                    ],
                 },
             },
         )
 
         self.assertEqual(
             merged["likely"],
-            [{"term": "obese", "categories": ["weight-based identity label", "condition identity label"]}],
+            [
+                {
+                    "term": "obese",
+                    "categories": [
+                        "weight-based identity label",
+                        "condition identity label",
+                    ],
+                }
+            ],
         )
 
     def test_process_dataframe_uses_model_categories_when_valid(self):
@@ -272,12 +344,22 @@ class BiasPipelineTests(unittest.TestCase):
                     "likely": [
                         {
                             "term": "was told to",
-                            "categories": ["paternalistic framing", "autonomy-undermining language"],
+                            "categories": [
+                                "paternalistic framing",
+                                "autonomy-undermining language",
+                            ],
                         }
                     ],
                 }
 
-        df = pd.DataFrame([{"unique_id": 1, "note_text": "The patient was told to return in two weeks."}])
+        df = pd.DataFrame(
+            [
+                {
+                    "unique_id": 1,
+                    "note_text": "The patient was told to return in two weeks.",
+                }
+            ]
+        )
         pipeline = StructuredStub()
 
         processed = pipeline.process_dataframe(df)
@@ -286,7 +368,10 @@ class BiasPipelineTests(unittest.TestCase):
             processed.loc[0, "Likely_Bias_Categories"],
             '["paternalistic framing", "autonomy-undermining language"]',
         )
-        self.assertIn('"categories": ["paternalistic framing", "autonomy-undermining language"]', processed.loc[0, "Likely_Bias_Details"])
+        self.assertIn(
+            '"categories": ["paternalistic framing", "autonomy-undermining language"]',
+            processed.loc[0, "Likely_Bias_Details"],
+        )
 
     def test_notes_with_chunk_failures_are_not_persisted_in_cache(self):
         class FailureStub(self.StubPipeline):
@@ -301,7 +386,15 @@ class BiasPipelineTests(unittest.TestCase):
                         "response_preview": '{"possible": []} {"likely": []}',
                     }
                 ]
-                return {"possible": [], "likely": [{"term": "difficult patient", "categories": ["difficult-patient framing"]}]}
+                return {
+                    "possible": [],
+                    "likely": [
+                        {
+                            "term": "difficult patient",
+                            "categories": ["difficult-patient framing"],
+                        }
+                    ],
+                }
 
         df = pd.DataFrame([{"unique_id": 1, "note_text": "Same note reused"}])
 
@@ -326,15 +419,29 @@ class HallucinationGuardTests(unittest.TestCase):
 
     def test_present_case_insensitive_and_whitespace_collapsed(self):
         self.assertTrue(term_present_in_chunk("Obese", "OBESE"))
-        self.assertTrue(term_present_in_chunk("uncontrolled  diabetic", "patient is uncontrolled diabetic"))
+        self.assertTrue(
+            term_present_in_chunk(
+                "uncontrolled  diabetic", "patient is uncontrolled diabetic"
+            )
+        )
 
     def test_present_when_term_has_parenthetical_tail(self):
         # The LLM sometimes emits "obesity (BMI 30-39.9" — verify the head matches.
-        self.assertTrue(term_present_in_chunk("obesity (BMI 30-39.9", "Patient has obesity (E66.9)."))
+        self.assertTrue(
+            term_present_in_chunk(
+                "obesity (BMI 30-39.9", "Patient has obesity (E66.9)."
+            )
+        )
 
     def test_absent_when_term_not_in_chunk(self):
-        self.assertFalse(term_present_in_chunk("elderly", "Mrs Smith, age 78, presents with hypertension."))
-        self.assertFalse(term_present_in_chunk("non-compliant", "Pt takes meds most days."))
+        self.assertFalse(
+            term_present_in_chunk(
+                "elderly", "Mrs Smith, age 78, presents with hypertension."
+            )
+        )
+        self.assertFalse(
+            term_present_in_chunk("non-compliant", "Pt takes meds most days.")
+        )
 
     def test_filter_drops_hallucinated_terms_only(self):
         result = {
@@ -344,14 +451,23 @@ class HallucinationGuardTests(unittest.TestCase):
             ],
             "likely": [
                 {"term": "non-compliant", "categories": ["disapproval"]},
-                {"term": "morbid obesity", "categories": ["weight-based identity label"]},
+                {
+                    "term": "morbid obesity",
+                    "categories": ["weight-based identity label"],
+                },
             ],
         }
         chunk = "Patient is obese and has morbid obesity (BMI 42)."
         filtered, dropped = filter_hallucinated_terms(result, chunk)
         self.assertEqual([d["term"] for d in dropped], ["elderly", "non-compliant"])
-        self.assertEqual(filtered["possible"], [{"term": "obese", "categories": ["weight-based identity label"]}])
-        self.assertEqual(filtered["likely"], [{"term": "morbid obesity", "categories": ["weight-based identity label"]}])
+        self.assertEqual(
+            filtered["possible"],
+            [{"term": "obese", "categories": ["weight-based identity label"]}],
+        )
+        self.assertEqual(
+            filtered["likely"],
+            [{"term": "morbid obesity", "categories": ["weight-based identity label"]}],
+        )
 
 
 if __name__ == "__main__":

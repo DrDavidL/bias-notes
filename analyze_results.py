@@ -29,7 +29,9 @@ def get_series_list(df: pd.DataFrame, column: str) -> List[List]:
 
 def ensure_word_count(df: pd.DataFrame) -> pd.Series:
     if "Note_Word_Count" in df.columns:
-        counts = pd.to_numeric(df["Note_Word_Count"], errors="coerce").fillna(0).astype(int)
+        counts = (
+            pd.to_numeric(df["Note_Word_Count"], errors="coerce").fillna(0).astype(int)
+        )
         if counts.sum() > 0:
             return counts
     if "note_text" in df.columns:
@@ -89,7 +91,9 @@ def print_top_counter(title: str, rows: List[tuple]) -> None:
         print(f"{count:4d}x  {term}")
 
 
-def print_category_prevalence_block(title: str, series_of_lists: Iterable[List], total_notes: int, top_n: int) -> None:
+def print_category_prevalence_block(
+    title: str, series_of_lists: Iterable[List], total_notes: int, top_n: int
+) -> None:
     print(f"\n{title}")
     print("-" * len(title))
     if total_notes == 0:
@@ -108,18 +112,26 @@ def print_category_prevalence_block(title: str, series_of_lists: Iterable[List],
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("results_file", help="Path to a results CSV produced by the bias pipeline.")
-    parser.add_argument("--top-n", type=int, default=15, help="How many top terms/categories to show.")
+    parser.add_argument(
+        "results_file", help="Path to a results CSV produced by the bias pipeline."
+    )
+    parser.add_argument(
+        "--top-n", type=int, default=15, help="How many top terms/categories to show."
+    )
     args = parser.parse_args()
 
     results_path = Path(args.results_file)
     df = pd.read_csv(results_path)
 
     df["Possible_Bias_Count"] = (
-        pd.to_numeric(df.get("Possible_Bias_Count", 0), errors="coerce").fillna(0).astype(int)
+        pd.to_numeric(df.get("Possible_Bias_Count", 0), errors="coerce")
+        .fillna(0)
+        .astype(int)
     )
     df["Likely_Bias_Count"] = (
-        pd.to_numeric(df.get("Likely_Bias_Count", 0), errors="coerce").fillna(0).astype(int)
+        pd.to_numeric(df.get("Likely_Bias_Count", 0), errors="coerce")
+        .fillna(0)
+        .astype(int)
     )
     df["Note_Word_Count"] = ensure_word_count(df)
     df["has_possible"] = df["Possible_Bias_Count"] > 0
@@ -139,10 +151,14 @@ def main() -> None:
     print(f"Results file: {results_path}")
     print(f"Rows loaded: {len(df)}")
     if "Prompt_Version" in df.columns:
-        versions = sorted({str(value) for value in df["Prompt_Version"].dropna().unique()})
+        versions = sorted(
+            {str(value) for value in df["Prompt_Version"].dropna().unique()}
+        )
         print(f"Prompt version(s): {', '.join(versions)}")
     if "Pipeline_Version" in df.columns:
-        versions = sorted({str(value) for value in df["Pipeline_Version"].dropna().unique()})
+        versions = sorted(
+            {str(value) for value in df["Pipeline_Version"].dropna().unique()}
+        )
         print(f"Pipeline version(s): {', '.join(versions)}")
     if "Model_Used" in df.columns:
         versions = sorted({str(value) for value in df["Model_Used"].dropna().unique()})

@@ -14,7 +14,9 @@ class NotebookHygieneTests(unittest.TestCase):
                     "cell_type": "code",
                     "execution_count": 7,
                     "metadata": {},
-                    "outputs": [{"output_type": "stream", "name": "stdout", "text": ["hello\n"]}],
+                    "outputs": [
+                        {"output_type": "stream", "name": "stdout", "text": ["hello\n"]}
+                    ],
                     "source": ["DATA_PATH = '/Users/testuser/OneDrive/secure.csv'\n"],
                 }
             ],
