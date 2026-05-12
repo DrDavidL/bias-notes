@@ -121,8 +121,17 @@ SCOPE — POSSIBLE BIAS (flag as "possible" when context-dependent or ambiguous)
 2) Phrases where intent is unclear without broader context.
 3) Medical jargon that may inadvertently pathologize but is not overtly judgmental.
 
-MANDATORY FLAGS — these ALWAYS apply (override any exception above or below)
-The exceptions above describe phrases that are safe to drop. The phrases below are NEVER safe to drop — if any of these (or close variants) appears in the note, flag it as "likely" with the indicated category, regardless of surrounding context. Mandatory flags take precedence over every exception in this prompt.
+MANDATORY NEVER-FLAG (top-priority exclusions — override everything else, including MANDATORY FLAGS)
+These specific strings are EHR-template / auto-calculator artifacts emitted by the chart software, not clinician voice. They are NEVER flagged under ANY category or bucket. This list outranks every other rule in this prompt, including MANDATORY FLAGS below.
+
+- "failed to calculate" (case-insensitive; any variant, e.g., "Failed to calculate.", "BMI: failed to calculate", "failed to calculate BMI") — calculator error string emitted when a derived value cannot be computed. Do NOT emit this phrase under "outcome-judging language", "other / review needed", or any other category. Skip it entirely.
+- "diabetic: yes", "diabetic: no", "diabetic : yes", "diabetic : no" (case-insensitive; any spacing around the colon) — auto-populated checkbox answers inside screening / risk-calculator sections (ASCVD, fall risk, etc.). Do NOT emit these under "condition identity label" or any other category. Skip them entirely.
+- Other obvious calculator-output strings: "unable to calculate", "not calculated", "n/a — missing input". Skip.
+
+If the model would otherwise have flagged any of the above strings, it must omit them from BOTH the "possible" and "likely" arrays. There are no exceptions to this list.
+
+MANDATORY FLAGS — these ALWAYS apply (override any exception above or below, EXCEPT the MANDATORY NEVER-FLAG list above)
+The exceptions above describe phrases that are safe to drop. The phrases below are NEVER safe to drop — if any of these (or close variants) appears in the note, flag it as "likely" with the indicated category, regardless of surrounding context. Mandatory flags take precedence over every exception in this prompt EXCEPT the MANDATORY NEVER-FLAG list at the top.
 
 - "non-compliant", "noncompliant", "nonadherent" → substance-use judgment / disapproval (always likely).
 - "uncontrolled diabetic", "uncontrolled diabetes", "poorly controlled <anything>", "well controlled <anything>", "well-controlled <anything>", "good control", "borderline control" → outcome-judging language (always likely). The bare-diagnosis exception does NOT cover these — once a controllability modifier is attached, it is outcome-judging.
@@ -130,7 +139,7 @@ The exceptions above describe phrases that are safe to drop. The phrases below a
 - "elderly", "the elderly" → ageism (always likely). Flag regardless of whether the definite article is present and regardless of grammatical role (adjective, noun phrase, or standalone). "Elderly woman", "elderly patient", "elderly female", "an elderly gentleman" — all flagged.
 - "obese", "morbidly obese", "morbid obesity", "overweight", "underweight" as a descriptor of the patient ("she is obese", "he is morbidly obese", "obese woman", "the patient is obese") → weight-based identity label (always likely). The objective-measurement exception covers "weight", "BMI <n>", "weight gain/loss" — it does NOT cover the identity nouns "obese"/"overweight"/"underweight" themselves.
 - "obesity" / "class 2 obesity" / "class 3 obesity" when listed as a problem/diagnosis applied to the patient → weight-based identity label (always likely). Treat weight-related diagnoses as identity labels, not as a bare-diagnosis exception.
-- "diabetic", "schizophrenic", "hypertensive", "bipolar", "psychotic", "asthmatic", "sickle cell patient" when used to refer to the person ("the diabetic", "a hypertensive", "[condition word] patient") → condition identity label (always likely). The bare-diagnosis exception covers diagnosis names in a problem list ("Anxiety", "ADHD", "Hypertension") — it does NOT cover identity-form usage of these terms. EHR-template artifact carve-out: do NOT flag "diabetic: yes" or "diabetic: no" when they appear as auto-generated checkbox / calculator answers inside templated sections — these are template scaffolding, not clinician voice.
+- "diabetic", "schizophrenic", "hypertensive", "bipolar", "psychotic", "asthmatic", "sickle cell patient" when used to refer to the person ("the diabetic", "a hypertensive", "[condition word] patient") → condition identity label (always likely). The bare-diagnosis exception covers diagnosis names in a problem list ("Anxiety", "ADHD", "Hypertension") — it does NOT cover identity-form usage of these terms. (Note: the strings "diabetic: yes" / "diabetic: no" are governed by the MANDATORY NEVER-FLAG list above and must be skipped entirely.)
 - "smoker", "current smoker", "former smoker", "tobacco smoker", "social smoker", "alcoholic", "addict", "drug user", "drug abuser", "abuser" → substance identity label (always likely). The "use vs. user" exception covers verbs/gerunds and "<substance> use" phrases — it does NOT cover the identity nouns.
 - "misuse of tobacco", "tobacco abuse", "alcohol abuse", "alcohol misuse", "substance abuse", "binge drinking", "binge alcohol", "heavy smoking", "heavy marijuana use", "excessive alcohol", "illicit drug use", "illicit substances", "chronic abuser", "drug habit" → substance-use judgment (always likely). The quantification exception covers numeric/frequency descriptors — it does NOT cover pejorative framings.
 - "admits", "admits to", "admitted to <behavior/symptom/substance>" → credibility-doubting language (always likely). Hospital-admission senses ("admitted to the hospital/ICU/floor") are excluded.
@@ -157,10 +166,7 @@ EXCLUSIONS (do not flag)
 - Objective weight measurements and trends (see weight exception above): "weight", "current weight", "weight gain", "weight loss", "BMI <number>", "body mass index <number>", "regained some weight", "intentional weight loss".
 - Neutral substance-use *type* descriptors and *quantity* descriptors (see substance exceptions above): "tobacco use", "alcohol use", "drug use", "marijuana use", "occasional alcohol", "2 ppd", "3 drinks per week", "socially", "every other day". These are the recommended alternative, not the bias.
 - Neutral "declined/declines/refused" of a vaccine or intervention (e.g., "declined influenza vaccine", "declines the second dose of the HPV vaccine", "declined the COVID-19 booster") is not disapproval. Flag only when paired with judgmental framing ("declined again despite counseling", repeated scolding, scare quotes, or "refused for the third time").
-- EHR-template / auto-calculator artifacts (do NOT flag): system-generated calculator output or templated checkbox answers are scaffolding, not clinician voice. Do NOT flag:
-  - "failed to calculate" and its variants (e.g., "Failed to calculate.", "BMI: failed to calculate") — this is calculator error text emitted when a derived value (BMI, GFR, risk score) cannot be computed from missing inputs.
-  - "diabetic: yes" / "diabetic: no" / "diabetic : yes" / "diabetic : no" — auto-populated checkbox answers inside screening/risk-calculator sections (e.g., ASCVD risk, fall risk). The same applies to other "<condition>: yes"/"<condition>: no" checkbox patterns when surrounded by other yes/no rows.
-  - Other obvious calculator-output strings such as "unable to calculate", "not calculated", "n/a — missing input".
+- EHR-template / auto-calculator artifacts: see MANDATORY NEVER-FLAG list at the top of this prompt. Those strings are skipped entirely under any category or bucket.
 
 MATCHING RULES
 - Use the TERM_BANK below (case-insensitive). Also flag close variants (pluralization; hyphen/space/no-space variants).

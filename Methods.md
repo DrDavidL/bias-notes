@@ -45,7 +45,8 @@ The prompt is organized into the following sections, in the order the model sees
 | CANONICAL CATEGORY LABELS | Closed list of 25 bias-category strings. The model must use one of these in each term's `categories` array. |
 | BIAS CATEGORIES (9 detailed) | Substance identity, condition identity, weight-based identity, moralizing lifestyle, effort-based, outcome-judging, substance-use judgment, attitude/behavior, plus 17 additional likely-bias patterns (ageism, classism, credibility-doubting, stereotyping, etc.). Each category lists positive examples, negative exceptions, and a suggested non-stigmatizing alternative. |
 | MANDATORY FLAGS | Phrases that ALWAYS flag regardless of any exception elsewhere in the prompt. Added in v2.1 to correct over-application of exceptions by gpt-4.1 (e.g., `elderly`, `non-compliant`, `uncontrolled diabetic`, identity-form `obese`/`diabetic`/`smoker`, `admits to`, `misuse of tobacco`). The hierarchy is explicit: mandatory > exceptions > general rules. |
-| EXCLUSIONS | What never to flag. Includes neutral charting verbs, SDOH screening taxonomy, validated screening-instrument items (PHQ, GAD, AUDIT items), bare diagnosis names in problem lists, objective weight/BMI measurements, neutral substance-use type/quantity descriptors, neutral vaccine refusal, and (as of v2.2) **EHR-template / auto-calculator artifacts** (e.g., `failed to calculate`, `diabetic: yes` / `diabetic: no` as calculator checkbox answers). |
+| MANDATORY NEVER-FLAG | **Top-priority exclusions** (added in v2.3) that override every other rule including MANDATORY FLAGS. Currently lists EHR-template / auto-calculator artifacts: `failed to calculate`, `diabetic: yes`/`diabetic: no` (any spacing), `unable to calculate`, `not calculated`. These are explicitly skipped under any category or bucket. A complementary deterministic deny-list filter in `bias_pipeline.py` (§4b) enforces this rule even when the model fails to comply. |
+| EXCLUSIONS | What never to flag. Includes neutral charting verbs, SDOH screening taxonomy, validated screening-instrument items (PHQ, GAD, AUDIT items), bare diagnosis names in problem lists, objective weight/BMI measurements, neutral substance-use type/quantity descriptors, neutral vaccine refusal. |
 | MATCHING RULES | Case-insensitive matching, plural/hyphen variants, identity-vs-adjective handling, conservative-by-default ("when ambiguous, prefer `possible` over `likely`"), do-not-flag-`normal` rule. |
 | OUTPUT | Strict JSON schema repeated for emphasis. |
 | TERM_BANK — LIKELY | ~80 stigmatizing phrases pre-classified as likely. |
@@ -55,7 +56,7 @@ The prompt is organized into the following sections, in the order the model sees
 
 A constant `PROMPT_VERSION` in `bias_pipeline.py:21` is embedded into every output row and is part of the disk-cache key. Any prompt change requires bumping this string so that cached chunk responses from older prompt versions cannot be reused.
 
-The version used for the publication-ready run is `2026-05-12-reviewer-feedback-v2.2-template-exclusions`.
+The version used for the publication-ready run is `2026-05-12-reviewer-feedback-v2.3-template-exclusions-filter`.
 
 ### 2.4 Iteration history (summarized)
 
@@ -65,7 +66,8 @@ The version used for the publication-ready run is `2026-05-12-reviewer-feedback-
 | v2 | Reviewer-driven exception additions; switched model to gpt-4.1 | Eliminated nearly all hallucinations, but new model over-applied exceptions and missed canonical stigma (e.g., 0/29 recall on `elderly`). |
 | v2.1 | Added MANDATORY FLAGS hierarchy | Restored recall on `elderly`, `admits to`, identity-form `obese`/`diabetic`. Precision 0.855. |
 | v2.1-guarded | Added in-pipeline hallucination guard | Zero hallucinations in output. |
-| **v2.2** (current) | Added EHR-template / auto-calculator exclusions (`failed to calculate`, `diabetic: yes/no` as checkbox answers) | Removes the dominant remaining false-positive class observed in the v2.1 run. |
+| v2.2 | Added EHR-template / auto-calculator exclusions (`failed to calculate`, `diabetic: yes/no` as checkbox answers) inside the EXCLUSIONS section | Spot-check showed gpt-4.1 still emitted 8/11 template strings, sometimes re-categorizing under `other / review needed`. Insufficient. |
+| **v2.3** (current) | Promoted the EHR-template carve-out to a new top-of-hierarchy MANDATORY NEVER-FLAG section; added complementary deterministic deny-list filter in `bias_pipeline.py`; added OpenAI `seed=42` parameter to the API call | 0 template-artifact rows in output across three 100-note runs. Multi-run noise floor at 88.6% term stability (seeded vs seeded), 0.80 Jaccard. |
 
 ---
 
@@ -80,6 +82,7 @@ Implemented in the `AzureBiasPipeline` class (`bias_pipeline.py:406`).
 | Provider | Azure OpenAI | `AzureOpenAI` client constructed in `run_bias_batch.py` |
 | Deployment | `gpt-4.1` (configured via `AZURE_DEPLOYMENT` env var) | `AzureBiasPipelineConfig.model_for_api` |
 | Temperature | 0 (deterministic) | `AzureBiasPipelineConfig.temperature` (default 0) |
+| Reproducibility seed | 42 (OpenAI "best effort" `seed` parameter) | `AzureBiasPipelineConfig.seed` (default 42) |
 | Max retries on transient errors | 5 | `AzureBiasPipelineConfig.max_retries` |
 | Backoff base | 1.4 s, exponential | `_sleep_backoff` |
 | Per-request parallelism | 4 concurrent chunks per note | `AzureBiasPipelineConfig.parallel_calls` |
@@ -130,7 +133,50 @@ A run-level counter is reported at completion (`Hallucination guard dropped: N m
 
 ### 4.4 Empirical effect
 
-In the canonical 100-note run with gpt-4.1 + v2.1-guarded prompt, the guard dropped 8 model emissions during execution; the final output contained 0 unverifiable terms.
+In the canonical 100-note run with gpt-4.1 + v2.1-guarded prompt, the guard dropped 8 model emissions during execution; the final output contained 0 unverifiable terms. In the v2.3 multi-run series, the guard dropped 7–10 emissions per 100-note run, again with 0 unverifiable terms in the final output.
+
+---
+
+## 4b. Template-artifact filter
+
+Implemented in `filter_template_artifacts` (`bias_pipeline.py`). Runs immediately after the hallucination guard, before caching. Drops any flagged term whose normalized form (lowercased, whitespace-collapsed, colon-spacing normalized) is in the fixed deny-list `TEMPLATE_ARTIFACT_DENYLIST`:
+
+```
+failed to calculate
+diabetic: yes
+diabetic: no
+diabetic:yes
+diabetic:no
+unable to calculate
+not calculated
+```
+
+These are EHR-template / auto-calculator artifacts (BMI / GFR / ASCVD risk / fall-risk calculator output, screening checkboxes) — software-generated text, not clinician voice. The prompt also lists them at the top of its hierarchy under MANDATORY NEVER-FLAG, but model compliance was empirically incomplete: a v2.2 spot-check (prompt-only exclusion) showed gpt-4.1 still emitted 8 of 11 template strings, sometimes re-categorizing them under `other / review needed` rather than dropping them. The deny-list filter is the deterministic enforcement layer that backs up the prompt rule.
+
+Run-level counter reported at completion (`Template-artifact guard dropped: N EHR-template term(s) on the deny-list`). Verbose logging via `BIAS_TEMPLATE_ARTIFACT_GUARD_VERBOSE=1`.
+
+**Empirical effect (v2.3, 100-note runs):** filter dropped 0–1 emissions per run, with 0 template-artifact rows in any final output. The prompt change handles most cases; the filter catches the remainder.
+
+---
+
+## 4c. Run-to-run reproducibility (noise floor)
+
+Even at temperature 0 with structured outputs, Azure-side serving introduces non-determinism (floating-point non-associativity across batched GPU inference, speculative decoding variation, MoE routing). To bound this, we re-ran the same 100-note sample three times under the v2.3 prompt: one run without the `seed` parameter, two consecutive runs with `seed=42`.
+
+| Comparison | Conditions | Jaccard | Stability (kept / |A|) |
+|---|---|---|---|
+| v2.2 → v2.3 | Different prompts (real prompt drift + model noise) | 0.65 | 70.7% |
+| v2.3 unseeded → v2.3 seeded run 1 | Same prompt; seed only in run 2 | 0.70 | 82.1% |
+| v2.3 unseeded → v2.3 seeded run 2 | Same prompt; seed only in run 2 | 0.70 | 82.1% |
+| **v2.3 seeded run 1 → seeded run 2** | **Same prompt, both seeded** | **0.80** | **88.6%** |
+
+At the same `(note_id, normalized_term)` granularity, **62.5% of all distinct flagged pairs across the three runs were consensus** (present in every run); **20.4% were singletons** (present in only one run). Singletons skewed toward low-frequency, context-dependent terms (`admits`, `declined`, `alcohol cravings`, `she declined the covid-19 booster`).
+
+At the note level (where the paper's primary metrics live) reproducibility is substantially higher: **74 of 100 notes had identical flag counts across all three runs**; only 1 note varied by ≥3 flags; the mean per-note range (max − min flag count across runs) was 0.49.
+
+**Implication for reporting**: aggregate metrics (note-level any-flag prevalence, flags-per-1,000-words, per-category counts) inherit the ~74-of-100 note-level stability and are highly reproducible. Phrase-by-phrase claims should be hedged or reported as consensus across N ≥ 3 runs.
+
+**Recommended for the full-cohort analysis**: run the n=500 pipeline three times under `seed=42` and report each metric as the median of the three runs with a 95% bootstrap CI from the run-level distribution. Cached outputs (one per run, keyed by `Note_Hash + Prompt_Version + Model_Used`) make this affordable for re-runs.
 
 ---
 
@@ -310,7 +356,7 @@ Two caveats on determinism:
 1. **Single institution.** All 500 notes come from one academic health system. Generalizability to community settings or non-English notes is untested.
 2. **Reviewer pool size.** Two primary reviewers with adjudication. Inter-rater reliability statistics (Cohen's κ on the overlap set) should be reported in the manuscript.
 3. **LLM as instrument.** Model outputs depend on a vendor-controlled deployment. We record `Model_Used` and `Prompt_Version` in every row to make the instrument version explicit, and we maintain a hallucination guard to bound the worst failure mode, but model behavior may drift across Azure deployments.
-4. **EHR-template artifacts.** Despite the v2.2 exclusions, some auto-text patterns (`failed to calculate`, `diabetic: yes/no`, BMI screening lines) remain heterogeneous across EHR templates. We flag the residual category in the analysis but recommend a sensitivity analysis dropping any flag whose surrounding 50 characters match a known template signature.
+4. **EHR-template artifacts.** v2.3's MANDATORY NEVER-FLAG + deterministic deny-list filter eliminates the three known template strings (`failed to calculate`, `diabetic: yes`, `diabetic: no`) deterministically, and they appear in 0 of 300 flagged rows across the three v2.3 100-note runs. Other auto-text patterns may exist in the n=500 cohort that are not yet on the deny-list; we recommend an end-of-run sensitivity audit identifying any high-frequency new term whose context window matches a templated yes/no or calculator-output signature, and adding it to `TEMPLATE_ARTIFACT_DENYLIST` for a follow-up run.
 5. **Possible vs. likely bucketing** carries reviewer subjectivity at the margins. We report the two buckets separately in all primary results.
 
 ---
@@ -325,7 +371,9 @@ Two caveats on determinism:
 | Sentence chunking | `bias_pipeline.py:203` | `chunk_by_sentences` |
 | Azure call | `bias_pipeline.py:556` | `call_model_on_chunk` |
 | Structured-output fallback | `bias_pipeline.py:318` | `_parse_model_response_text` |
-| Hallucination guard | `bias_pipeline.py:351`, `:369` | `term_present_in_chunk`, `filter_hallucinated_terms` |
+| Hallucination guard | `bias_pipeline.py` | `term_present_in_chunk`, `filter_hallucinated_terms` |
+| Template-artifact filter | `bias_pipeline.py` | `filter_template_artifacts`, `TEMPLATE_ARTIFACT_DENYLIST`, `_normalize_for_denylist` |
+| Reproducibility seed wiring | `bias_pipeline.py` | `AzureBiasPipelineConfig.seed`, `_create_completion`, `adjudicate_ambiguous_terms` |
 | Per-note merge | `bias_pipeline.py:755` | `_merge_chunk_results` |
 | Second-pass adjudication | `bias_pipeline.py:649` | `adjudicate_ambiguous_terms` |
 | Disk cache | `bias_pipeline.py:446`, `:474` | `_load_note_cache`, `_write_note_cache` |
@@ -346,4 +394,5 @@ Two caveats on determinism:
 | 2026-05-08 | v2 | Reviewer-driven exceptions; switched to gpt-4.1. |
 | 2026-05-11 | v2.1 | Added MANDATORY FLAGS section. |
 | 2026-05-11 | v2.1-guarded | Hallucination guard live in pipeline. |
-| 2026-05-12 | v2.2 | Added EHR-template/auto-calculator exclusions (`failed to calculate`, `diabetic: yes/no` as checkbox answers); removed conflicting mandatory-flag carve-out. **This is the version used for the n=500 publication run.** |
+| 2026-05-12 | v2.2 | Added EHR-template/auto-calculator exclusions inside EXCLUSIONS section. Spot-check showed model bypassing the rule by re-categorizing the targets. |
+| 2026-05-12 | **v2.3** | Promoted EHR-template carve-out to top-of-hierarchy MANDATORY NEVER-FLAG; added deterministic deny-list filter in `bias_pipeline.py`; added OpenAI `seed=42` parameter. **This is the version used for the n=500 publication run.** Multi-run noise floor (3 × 100-note runs): 88.6% term stability, 0 template-artifact leakage. |

@@ -22,7 +22,7 @@ from bias_review_utils import (
 
 
 PIPELINE_VERSION = "2026-04-14-structured-categories-v3"
-PROMPT_VERSION = "2026-05-12-reviewer-feedback-v2.2-template-exclusions"
+PROMPT_VERSION = "2026-05-12-reviewer-feedback-v2.3-template-exclusions-filter"
 _AMBIGUOUS_POSSIBLE_TERMS = {
     "obese",
     "diabetic",
@@ -190,6 +190,12 @@ class AzureBiasPipelineConfig:
     ambiguous_term_limit: int = 8
     prompt_version: str = PROMPT_VERSION
     pipeline_version: str = PIPELINE_VERSION
+    # OpenAI/Azure "best effort" reproducibility hint. Same seed + same
+    # model snapshot + same parameters should produce identical output most
+    # of the time, but the provider does not guarantee bit-for-bit
+    # determinism across hardware/serving variants. We pass a fixed default
+    # to reduce run-to-run drift without making it required.
+    seed: Optional[int] = 42
 
 
 def generate_output_path(output_dir: str, prefix: str) -> str:
@@ -406,6 +412,64 @@ def filter_hallucinated_terms(
     return filtered, dropped
 
 
+# Deterministic deny-list for EHR-template / auto-calculator artifacts.
+# These strings are emitted by chart software (BMI/ASCVD/fall-risk calculators,
+# screening checkboxes) and are not clinician voice. The prompt also lists them
+# under MANDATORY NEVER-FLAG, but the model occasionally re-routes them under
+# a different category — this filter is the deterministic enforcement layer.
+TEMPLATE_ARTIFACT_DENYLIST = frozenset(
+    {
+        "failed to calculate",
+        "diabetic: yes",
+        "diabetic: no",
+        "diabetic:yes",
+        "diabetic:no",
+        "unable to calculate",
+        "not calculated",
+    }
+)
+
+
+def _normalize_for_denylist(text: str) -> str:
+    """Lowercase, collapse internal whitespace, normalize spacing around colon."""
+    if not text:
+        return ""
+    lowered = text.lower()
+    collapsed = _WS_RE.sub(" ", lowered).strip()
+    # Strip trailing punctuation that doesn't affect identity.
+    collapsed = collapsed.strip(" \t\n\r.,;:!?\"'()[]{}<>")
+    # Normalize spacing around the colon so "diabetic : yes" → "diabetic: yes"
+    collapsed = re.sub(r"\s*:\s*", ": ", collapsed)
+    # Re-tighten in case the prior step left a trailing space.
+    return collapsed.strip()
+
+
+def filter_template_artifacts(
+    result: Dict[str, List[object]],
+) -> tuple[Dict[str, List[object]], List[Dict[str, str]]]:
+    """Drop any flagged term whose normalized form is in the deny-list.
+
+    Runs after the hallucination guard. Returns (filtered_result, dropped_log).
+    """
+    dropped: List[Dict[str, str]] = []
+    filtered: Dict[str, List[object]] = {"possible": [], "likely": []}
+    for bucket in ("possible", "likely"):
+        for item in result.get(bucket, []):
+            term = _extract_result_term(item)
+            norm = _normalize_for_denylist(term)
+            # Accept either exact match or a normalized form that exactly equals
+            # the deny-list entry after stripping colon-spacing.
+            no_space_colon = norm.replace(": ", ":")
+            if (
+                norm in TEMPLATE_ARTIFACT_DENYLIST
+                or no_space_colon in TEMPLATE_ARTIFACT_DENYLIST
+            ):
+                dropped.append({"bucket": bucket, "term": term})
+                continue
+            filtered[bucket].append(item)
+    return filtered, dropped
+
+
 def postprocess_results(result: Dict[str, List[object]]) -> Dict[str, List[object]]:
     return {
         "possible": [
@@ -436,6 +500,10 @@ class AzureBiasPipeline:
         self._hallucinations_dropped_count: int = 0
         self._hallucination_guard_verbose: bool = os.getenv(
             "BIAS_HALLUCINATION_GUARD_VERBOSE", ""
+        ).lower() in ("1", "true", "yes")
+        self._template_artifacts_dropped_count: int = 0
+        self._template_artifact_guard_verbose: bool = os.getenv(
+            "BIAS_TEMPLATE_ARTIFACT_GUARD_VERBOSE", ""
         ).lower() in ("1", "true", "yes")
         self._note_cache = self._load_note_cache(config.cache_path)
         self._current_note_hash = ""
@@ -569,6 +637,8 @@ class AzureBiasPipeline:
             "messages": [{"role": "user", "content": user_content}],
             "temperature": self.config.temperature,
         }
+        if self.config.seed is not None:
+            request_kwargs["seed"] = self.config.seed
         if response_format is not None:
             request_kwargs["response_format"] = response_format
 
@@ -672,6 +742,22 @@ class AzureBiasPipeline:
                         f"[GUARD] Chunk {chunk_index}: dropped {len(dropped)} hallucinated term(s): {sample}{extra}"
                     )
                 self._hallucinations_dropped_count += len(dropped)
+                # Template-artifact guard: enforce the MANDATORY NEVER-FLAG list
+                # deterministically regardless of which category the model used.
+                result, template_dropped = filter_template_artifacts(result)
+                if template_dropped and self._template_artifact_guard_verbose:
+                    sample = ", ".join(
+                        f'{d["bucket"]}:"{d["term"]}"' for d in template_dropped[:5]
+                    )
+                    extra = (
+                        f" (+{len(template_dropped) - 5} more)"
+                        if len(template_dropped) > 5
+                        else ""
+                    )
+                    print(
+                        f"[TEMPLATE-GUARD] Chunk {chunk_index}: dropped {len(template_dropped)} EHR-template term(s): {sample}{extra}"
+                    )
+                self._template_artifacts_dropped_count += len(template_dropped)
                 if self.config.cache_chunk_responses and cache_key:
                     with self._cache_lock:
                         self._chunk_cache[cache_key] = {
@@ -732,18 +818,21 @@ class AzureBiasPipeline:
             },
         }
 
+        adjudication_kwargs = {
+            "model": self.config.model_for_api,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": json.dumps(adjudication_prompt, ensure_ascii=False),
+                }
+            ],
+            "max_completion_tokens": 512,
+            "temperature": 0,
+        }
+        if self.config.seed is not None:
+            adjudication_kwargs["seed"] = self.config.seed
         try:
-            response = self.client.chat.completions.create(
-                model=self.config.model_for_api,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": json.dumps(adjudication_prompt, ensure_ascii=False),
-                    }
-                ],
-                max_completion_tokens=512,
-                temperature=0,
-            )
+            response = self.client.chat.completions.create(**adjudication_kwargs)
             content = (response.choices[0].message.content or "").strip()
             parsed = json.loads(content)
             decisions = parsed.get("decisions", []) if isinstance(parsed, dict) else []
@@ -978,6 +1067,9 @@ class AzureBiasPipeline:
         print(f"  Cache hits: {cache_hits}/{total_rows}")
         print(
             f"  Hallucination guard dropped: {self._hallucinations_dropped_count} model-emitted term(s) absent from source"
+        )
+        print(
+            f"  Template-artifact guard dropped: {self._template_artifacts_dropped_count} EHR-template term(s) on the deny-list"
         )
         return processed
 

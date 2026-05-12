@@ -13,6 +13,7 @@ from bias_pipeline import (
     build_reviewer_adjudication_dataframe,
     chunk_by_sentences,
     filter_hallucinated_terms,
+    filter_template_artifacts,
     postprocess_results,
     term_present_in_chunk,
     write_output_bundle,
@@ -468,6 +469,93 @@ class HallucinationGuardTests(unittest.TestCase):
             filtered["likely"],
             [{"term": "morbid obesity", "categories": ["weight-based identity label"]}],
         )
+
+
+class TemplateArtifactGuardTests(unittest.TestCase):
+    def test_drops_failed_to_calculate_exact(self):
+        result = {
+            "possible": [
+                {
+                    "term": "failed to calculate",
+                    "categories": ["outcome-judging language"],
+                },
+            ],
+            "likely": [],
+        }
+        filtered, dropped = filter_template_artifacts(result)
+        self.assertEqual(filtered, {"possible": [], "likely": []})
+        self.assertEqual([d["term"] for d in dropped], ["failed to calculate"])
+
+    def test_drops_failed_to_calculate_under_alternate_category(self):
+        # Confirms category-agnostic dropping: the model routed the same string
+        # under "other / review needed" in v2.2; the filter still drops it.
+        result = {
+            "possible": [],
+            "likely": [
+                {
+                    "term": "Failed to calculate.",
+                    "categories": ["other / review needed"],
+                },
+            ],
+        }
+        filtered, dropped = filter_template_artifacts(result)
+        self.assertEqual(filtered, {"possible": [], "likely": []})
+        self.assertEqual(len(dropped), 1)
+
+    def test_drops_diabetic_checkbox_variants(self):
+        result = {
+            "possible": [],
+            "likely": [
+                {"term": "Diabetic: Yes", "categories": ["condition identity label"]},
+                {"term": "Diabetic: No", "categories": ["condition identity label"]},
+                {"term": "diabetic : no", "categories": ["condition identity label"]},
+                {"term": "diabetic:yes", "categories": ["condition identity label"]},
+            ],
+        }
+        filtered, dropped = filter_template_artifacts(result)
+        self.assertEqual(filtered, {"possible": [], "likely": []})
+        self.assertEqual(len(dropped), 4)
+
+    def test_preserves_real_flags(self):
+        # A real diabetic-identity usage ("the diabetic") must NOT be dropped.
+        result = {
+            "possible": [],
+            "likely": [
+                {"term": "the diabetic", "categories": ["condition identity label"]},
+                {
+                    "term": "diabetic neuropathy",
+                    "categories": ["condition identity label"],
+                },
+                {"term": "Diabetic: No", "categories": ["condition identity label"]},
+            ],
+        }
+        filtered, dropped = filter_template_artifacts(result)
+        self.assertEqual(
+            filtered["likely"],
+            [
+                {"term": "the diabetic", "categories": ["condition identity label"]},
+                {
+                    "term": "diabetic neuropathy",
+                    "categories": ["condition identity label"],
+                },
+            ],
+        )
+        self.assertEqual([d["term"] for d in dropped], ["Diabetic: No"])
+
+    def test_handles_other_denylisted_strings(self):
+        result = {
+            "possible": [
+                {
+                    "term": "Unable to calculate",
+                    "categories": ["outcome-judging language"],
+                },
+                {"term": "not calculated", "categories": ["outcome-judging language"]},
+            ],
+            "likely": [],
+        }
+        filtered, dropped = filter_template_artifacts(result)
+        self.assertEqual(filtered, {"possible": [], "likely": []})
+        self.assertEqual(len(dropped), 2)
 
 
 if __name__ == "__main__":
