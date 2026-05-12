@@ -18,7 +18,7 @@ from bias_review_utils import ALLOWED_BIAS_CATEGORIES, canonicalize_bias_categor
 
 
 PIPELINE_VERSION = "2026-04-14-structured-categories-v3"
-PROMPT_VERSION = "2026-04-14-structured-categories-v1"
+PROMPT_VERSION = "2026-05-12-reviewer-feedback-v2.2-template-exclusions"
 _AMBIGUOUS_POSSIBLE_TERMS = {
     "obese",
     "diabetic",
@@ -337,6 +337,55 @@ def _parse_model_response_text(text: str):
         raise initial_error
 
 
+_WS_RE = re.compile(r"\s+")
+
+
+def _normalize_for_presence_check(text: str) -> str:
+    """Lowercase + collapse whitespace + strip ASCII punctuation for substring matching."""
+    lowered = text.lower()
+    collapsed = _WS_RE.sub(" ", lowered).strip()
+    # Strip common trailing punctuation that the LLM sometimes appends/omits inconsistently
+    return collapsed.strip(" \t\n\r.,;:!?\"'()[]{}<>")
+
+
+def term_present_in_chunk(term: str, chunk_text: str) -> bool:
+    """True iff `term` appears in `chunk_text` after whitespace/case/punctuation normalization."""
+    if not term or not chunk_text:
+        return False
+    norm_term = _normalize_for_presence_check(term)
+    if not norm_term:
+        return False
+    norm_chunk = _normalize_for_presence_check(chunk_text)
+    if norm_term in norm_chunk:
+        return True
+    # Also try the term without its trailing parenthetical (e.g. "obesity (BMI 30-39.9" -> "obesity")
+    if "(" in norm_term:
+        head = norm_term.split("(", 1)[0].strip()
+        if head and head in norm_chunk:
+            return True
+    return False
+
+
+def filter_hallucinated_terms(
+    result: Dict[str, List[object]], chunk_text: str
+) -> tuple[Dict[str, List[object]], List[Dict[str, str]]]:
+    """Drop any flagged term whose text does not appear in `chunk_text`.
+
+    Returns (filtered_result, dropped_log). `dropped_log` lists the discarded terms
+    so callers can record them for visibility.
+    """
+    dropped: List[Dict[str, str]] = []
+    filtered: Dict[str, List[object]] = {"possible": [], "likely": []}
+    for bucket in ("possible", "likely"):
+        for item in result.get(bucket, []):
+            term = _extract_result_term(item)
+            if term_present_in_chunk(term, chunk_text):
+                filtered[bucket].append(item)
+            else:
+                dropped.append({"bucket": bucket, "term": term})
+    return filtered, dropped
+
+
 def postprocess_results(result: Dict[str, List[object]]) -> Dict[str, List[object]]:
     return {
         "possible": [
@@ -362,6 +411,8 @@ class AzureBiasPipeline:
         self._semaphore = Semaphore(config.global_max_calls)
         self._cache_lock = Lock()
         self._chunk_cache: Dict[str, Dict[str, List[object]]] = {}
+        self._hallucinations_dropped_count: int = 0
+        self._hallucination_guard_verbose: bool = os.getenv("BIAS_HALLUCINATION_GUARD_VERBOSE", "").lower() in ("1", "true", "yes")
         self._note_cache = self._load_note_cache(config.cache_path)
         self._current_note_hash = ""
         self._last_chunk_failures: List[Dict[str, object]] = []
@@ -566,6 +617,18 @@ class AzureBiasPipeline:
                         for normalized_item in [_normalize_result_entry(item)]
                         if normalized_item
                     ]
+                # Hallucination guard: drop any term the LLM emitted that does not
+                # actually appear in this chunk. Required because gpt-4o-mini was
+                # observed inventing canonical stigma terms (e.g., "elderly",
+                # "non-compliant", "uncontrolled diabetic") that never appeared in
+                # the source notes. The guard is model-agnostic and is the final
+                # filter before the chunk result is cached/returned.
+                result, dropped = filter_hallucinated_terms(result, chunk_text)
+                if dropped and self._hallucination_guard_verbose:
+                    sample = ", ".join(f'{d["bucket"]}:"{d["term"]}"' for d in dropped[:5])
+                    extra = f" (+{len(dropped) - 5} more)" if len(dropped) > 5 else ""
+                    print(f"[GUARD] Chunk {chunk_index}: dropped {len(dropped)} hallucinated term(s): {sample}{extra}")
+                self._hallucinations_dropped_count += len(dropped)
                 if self.config.cache_chunk_responses and cache_key:
                     with self._cache_lock:
                         self._chunk_cache[cache_key] = {
@@ -806,6 +869,7 @@ class AzureBiasPipeline:
 
         self._write_note_cache()
         print(f"  Cache hits: {cache_hits}/{total_rows}")
+        print(f"  Hallucination guard dropped: {self._hallucinations_dropped_count} model-emitted term(s) absent from source")
         return processed
 
 

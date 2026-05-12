@@ -12,7 +12,9 @@ from bias_pipeline import (
     build_analysis_ready_dataframe,
     build_reviewer_adjudication_dataframe,
     chunk_by_sentences,
+    filter_hallucinated_terms,
     postprocess_results,
+    term_present_in_chunk,
     write_output_bundle,
 )
 
@@ -316,6 +318,40 @@ class BiasPipelineTests(unittest.TestCase):
         self.assertEqual(second_pipeline.analyze_calls, 1)
         self.assertEqual(first_result.loc[0, "Chunk_Failure_Count"], 1)
         self.assertEqual(second_result.loc[0, "Chunk_Failure_Count"], 1)
+
+
+class HallucinationGuardTests(unittest.TestCase):
+    def test_present_when_verbatim_match(self):
+        self.assertTrue(term_present_in_chunk("obese", "The patient is obese."))
+
+    def test_present_case_insensitive_and_whitespace_collapsed(self):
+        self.assertTrue(term_present_in_chunk("Obese", "OBESE"))
+        self.assertTrue(term_present_in_chunk("uncontrolled  diabetic", "patient is uncontrolled diabetic"))
+
+    def test_present_when_term_has_parenthetical_tail(self):
+        # The LLM sometimes emits "obesity (BMI 30-39.9" — verify the head matches.
+        self.assertTrue(term_present_in_chunk("obesity (BMI 30-39.9", "Patient has obesity (E66.9)."))
+
+    def test_absent_when_term_not_in_chunk(self):
+        self.assertFalse(term_present_in_chunk("elderly", "Mrs Smith, age 78, presents with hypertension."))
+        self.assertFalse(term_present_in_chunk("non-compliant", "Pt takes meds most days."))
+
+    def test_filter_drops_hallucinated_terms_only(self):
+        result = {
+            "possible": [
+                {"term": "obese", "categories": ["weight-based identity label"]},
+                {"term": "elderly", "categories": ["ageism"]},
+            ],
+            "likely": [
+                {"term": "non-compliant", "categories": ["disapproval"]},
+                {"term": "morbid obesity", "categories": ["weight-based identity label"]},
+            ],
+        }
+        chunk = "Patient is obese and has morbid obesity (BMI 42)."
+        filtered, dropped = filter_hallucinated_terms(result, chunk)
+        self.assertEqual([d["term"] for d in dropped], ["elderly", "non-compliant"])
+        self.assertEqual(filtered["possible"], [{"term": "obese", "categories": ["weight-based identity label"]}])
+        self.assertEqual(filtered["likely"], [{"term": "morbid obesity", "categories": ["weight-based identity label"]}])
 
 
 if __name__ == "__main__":

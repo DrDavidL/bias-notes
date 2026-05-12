@@ -17,6 +17,8 @@ The core detection logic lives in `bias_detection_prompt.py` and the primary sha
 
 The script-based pipeline is the canonical repo workflow. Notebooks are retained for exploration, demos, and public-facing reproducibility, and may intentionally diverge from the shared script pipeline over time.
 
+**Adapting this repo to your own data?** See [`How_to_use.md`](./How_to_use.md) for a step-by-step guide to running the pipeline, customizing the prompt for your domain, and building an evaluation harness against a reviewer-adjudicated gold standard.
+
 ## Security Model
 
 - Do not store note CSVs, XLSX files, or secrets in the repo.

@@ -48,7 +48,8 @@ Use only these exact strings in each "categories" array:
 1. **Substance-related identity-based labels** (LIKELY bias):
    - Flag: "tobacco smoker", "current smoker", "former smoker", "social smoker", "alcoholic", "drug user"
    - Pattern: "The patient [is/was/are] [a/an] [smoker/alcoholic/drug user]"
-   - Exception: None.
+   - Exception — Verb forms vs. identity nouns (do NOT flag): verbs and gerunds ("smokes", "smoking", "drinks", "uses") and noun phrases of the form "<substance> use" ("tobacco use", "alcohol use", "marijuana use", "drug use", "substance use") describe behavior, not identity. Flag only when the substance becomes the person ("user", "smoker", "alcoholic", "addict").
+   - Exception — Quantity / frequency / pattern (do NOT flag): numeric or descriptive quantification of substance use ("2 ppd", "3 drinks per week", "5 standard drinks", "occasional alcohol", "occasional marijuana use", "socially", "every other day", "2-3 drinks") is matter-of-fact data and is the recommended alternative to identity labels — never the bias itself.
    - Suggestion: Define patients by personhood first. Include substance use history, quantity, or pattern. Example: "the patient has smoked cigarettes for the past 15 years and currently smokes ~3 cigarettes per day."
    - Why: These terms define the person by substance use status rather than describing substance use history, quantity, or pattern.
 
@@ -56,6 +57,7 @@ Use only these exact strings in each "categories" array:
    - Flag: "diabetic", "sickle cell patient", "schizophrenic", "obese" (when used to define the person)
    - Pattern: "The patient is a/an [condition word]" or "[condition word] patient"
    - Exception — Condition Description (do NOT flag): "diabetic retinopathy", "diabetic neuropathy" — here the term describes a medical condition, not labels the patient.
+   - Exception — Bare diagnosis names (do NOT flag): diagnosis nouns appearing in problem lists, assessments, HPI, or ICD-style descriptors — e.g., "anxiety", "ADHD", "bipolar disorder", "depression", "hypertension", "essential hypertension", "primary hypertension", "type 1 diabetes", "type 2 diabetes mellitus" (with or without complication descriptors), "prediabetes", "hypercholesterolemia", "hypercholesteremia", "iron deficiency", "iron deficiency anemia", "ulcerative colitis", "PTSD", "OCD", "osteopenia", "tobacco use disorder", "alcohol use disorder" — are diagnoses, not identity labels. Identity labeling requires explicit personification ("the diabetic", "an asthmatic", "the patient is bipolar", "[condition] patient"). When the term simply names the disease without applying it as a label to the person, do NOT flag.
    - Suggestion: Define patients by personhood first. Example: "the patient has a history of diabetes; the patient was diagnosed with schizophrenia."
    - Why: These terms define the person by a diagnosis rather than describing their medical condition.
 
@@ -67,7 +69,7 @@ Use only these exact strings in each "categories" array:
 
 5. **Weight-based identity labels** (LIKELY bias):
    - Flag: "obesity", "class 2 obesity", "class 3 obesity", "morbid obesity", "overweight", "underweight", "obese"
-   - Exception: None.
+   - Exception — Objective measurements (do NOT flag): bare measurements and trends are the recommended alternative, not the bias. Do NOT flag "weight", "current weight", "weight gain", "weight loss", "wt loss", "regained some weight", "gained N pounds", "unexpected weight change", "intentional weight loss", "weight management", "BMI <number>", "body mass index <number>" — these report objective data and are the suggested replacement for identity labels.
    - Suggestion: Replace with objective data such as current weight, weight trend, or BMI. Example: "the patient's current weight is 160 lbs.; the patient's current BMI is 34."
    - Why: These terms frame body size as an identity rather than reporting objective measurements.
 
@@ -85,7 +87,7 @@ Use only these exact strings in each "categories" array:
 
 8. **Substance-use judgmental language** (LIKELY bias):
     - Flag: "misuse of tobacco", "tobacco abuse", "heavy smoking", "binge drinking", "excessive alcohol", "alcohol misuse", "binge alcohol", "illicit drug use", "illicit substances", "alcohol abuse", "heavy marijuana use"
-    - Exception: None.
+    - Exception — Quantification and frequency (do NOT flag): numeric or descriptive quantification of substance use is matter-of-fact data, not judgment. Do NOT flag "2 ppd", "3 drinks per week", "5 standard drinks", "2-3 standard drinks or equivalent per week", "occasional alcohol consumption", "occasional marijuana use", "socially", "typically weekends only", "every other day", "decreased cocaine", "reduced use", "abstained from alcohol", "drinks 1 to 2 glasses of alcohol", "smoking status: <value>". Only flag pejorative framings ("heavy", "binge", "abuse", "misuse", "excessive", "illicit", "chronic abuser").
     - Suggestion: Describe objective data such as quantity, frequency, or pattern. Example: "the patient has smoked cigarettes for the past 15 years and currently smokes ~3 cigarettes per day."
     - Why: These terms judge substance use instead of describing quantity, frequency, or pattern.
 
@@ -119,6 +121,23 @@ SCOPE — POSSIBLE BIAS (flag as "possible" when context-dependent or ambiguous)
 2) Phrases where intent is unclear without broader context.
 3) Medical jargon that may inadvertently pathologize but is not overtly judgmental.
 
+MANDATORY FLAGS — these ALWAYS apply (override any exception above or below)
+The exceptions above describe phrases that are safe to drop. The phrases below are NEVER safe to drop — if any of these (or close variants) appears in the note, flag it as "likely" with the indicated category, regardless of surrounding context. Mandatory flags take precedence over every exception in this prompt.
+
+- "non-compliant", "noncompliant", "nonadherent" → substance-use judgment / disapproval (always likely).
+- "uncontrolled diabetic", "uncontrolled diabetes", "poorly controlled <anything>", "well controlled <anything>", "well-controlled <anything>", "good control", "borderline control" → outcome-judging language (always likely). The bare-diagnosis exception does NOT cover these — once a controllability modifier is attached, it is outcome-judging.
+- "difficult patient", "frequent flyer", "frequent flier", "malingerer", "drug-seeking", "manipulative", "complainer" → difficult-patient framing (always likely).
+- "elderly", "the elderly" → ageism (always likely). Flag regardless of whether the definite article is present and regardless of grammatical role (adjective, noun phrase, or standalone). "Elderly woman", "elderly patient", "elderly female", "an elderly gentleman" — all flagged.
+- "obese", "morbidly obese", "morbid obesity", "overweight", "underweight" as a descriptor of the patient ("she is obese", "he is morbidly obese", "obese woman", "the patient is obese") → weight-based identity label (always likely). The objective-measurement exception covers "weight", "BMI <n>", "weight gain/loss" — it does NOT cover the identity nouns "obese"/"overweight"/"underweight" themselves.
+- "obesity" / "class 2 obesity" / "class 3 obesity" when listed as a problem/diagnosis applied to the patient → weight-based identity label (always likely). Treat weight-related diagnoses as identity labels, not as a bare-diagnosis exception.
+- "diabetic", "schizophrenic", "hypertensive", "bipolar", "psychotic", "asthmatic", "sickle cell patient" when used to refer to the person ("the diabetic", "a hypertensive", "[condition word] patient") → condition identity label (always likely). The bare-diagnosis exception covers diagnosis names in a problem list ("Anxiety", "ADHD", "Hypertension") — it does NOT cover identity-form usage of these terms. EHR-template artifact carve-out: do NOT flag "diabetic: yes" or "diabetic: no" when they appear as auto-generated checkbox / calculator answers inside templated sections — these are template scaffolding, not clinician voice.
+- "smoker", "current smoker", "former smoker", "tobacco smoker", "social smoker", "alcoholic", "addict", "drug user", "drug abuser", "abuser" → substance identity label (always likely). The "use vs. user" exception covers verbs/gerunds and "<substance> use" phrases — it does NOT cover the identity nouns.
+- "misuse of tobacco", "tobacco abuse", "alcohol abuse", "alcohol misuse", "substance abuse", "binge drinking", "binge alcohol", "heavy smoking", "heavy marijuana use", "excessive alcohol", "illicit drug use", "illicit substances", "chronic abuser", "drug habit" → substance-use judgment (always likely). The quantification exception covers numeric/frequency descriptors — it does NOT cover pejorative framings.
+- "admits", "admits to", "admitted to <behavior/symptom/substance>" → credibility-doubting language (always likely). Hospital-admission senses ("admitted to the hospital/ICU/floor") are excluded.
+- "aggressive", "belligerent", "combative", "aggression", "aggressively", "combativeness" → stereotyping / attitude-behavior framing (always likely).
+- "trying to <verb>", "tries to <verb>", "struggles", "suffers" when applied to the patient's effort or experience → effort-based language (always likely). The time-bound-action exception covers "tried metformin/PT" — it does NOT cover "trying to lose weight", "tries to adhere", "struggles with adherence".
+- "crazy", "insane", "hysterical", "demented", "senile", "dirty", "foul odor", "junkie", "criminal" → likely (multiple categories as appropriate).
+
 EXCLUSIONS (do not flag)
 - Neutral quotations of patient speech with appropriate context.
 - Objective corroboration (labs, imaging) used cautiously.
@@ -132,12 +151,22 @@ EXCLUSIONS (do not flag)
 - Any use of "normal" in clinical documentation — do not flag "normal" language of any kind (mental status, appearance, physiologic, or otherwise).
 - Neutral charting verbs and scaffolding such as "denies", "reports", "states", or "the patient" unless the surrounding phrase clearly questions credibility or carries stigma.
 - Procedural or anatomically descriptive phrases such as "difficult airway" or "difficult intubation" when they are clinically descriptive rather than judgmental.
+- SDOH screening taxonomy: do NOT flag standard social-determinants screening category labels such as "food insecurity", "housing stability", "transportation needs", "financial strain", "social isolation", "interpersonal safety" — including with risk modifiers ("food insecurity: low risk", "housing stability: high risk"). These are screening tool taxonomy, not the clinician's framing of the patient.
+- Validated screening-instrument items: do NOT flag verbatim items from PHQ-2/PHQ-9, GAD-7, AUDIT, AUDIT-C, DAST, Edinburgh, or similar instruments — e.g., "feeling like a failure", "little interest or pleasure", "trouble concentrating", "feeling tired or having little energy". These are instrument text, not clinician voice. Tip: look for nearby instrument names, numeric Likert anchors ("Not at all / Several days / More than half the days / Nearly every day"), or item scoring.
+- Bare diagnosis names in problem lists, assessments, HPI, or ICD-style descriptors (see condition-identity-label exception above): "anxiety", "ADHD", "bipolar disorder", "depression", "hypertension", "type 2 diabetes mellitus", "prediabetes", "hypercholesterolemia", "iron deficiency", etc. — unless explicitly personifying the patient.
+- Objective weight measurements and trends (see weight exception above): "weight", "current weight", "weight gain", "weight loss", "BMI <number>", "body mass index <number>", "regained some weight", "intentional weight loss".
+- Neutral substance-use *type* descriptors and *quantity* descriptors (see substance exceptions above): "tobacco use", "alcohol use", "drug use", "marijuana use", "occasional alcohol", "2 ppd", "3 drinks per week", "socially", "every other day". These are the recommended alternative, not the bias.
+- Neutral "declined/declines/refused" of a vaccine or intervention (e.g., "declined influenza vaccine", "declines the second dose of the HPV vaccine", "declined the COVID-19 booster") is not disapproval. Flag only when paired with judgmental framing ("declined again despite counseling", repeated scolding, scare quotes, or "refused for the third time").
+- EHR-template / auto-calculator artifacts (do NOT flag): system-generated calculator output or templated checkbox answers are scaffolding, not clinician voice. Do NOT flag:
+  - "failed to calculate" and its variants (e.g., "Failed to calculate.", "BMI: failed to calculate") — this is calculator error text emitted when a derived value (BMI, GFR, risk score) cannot be computed from missing inputs.
+  - "diabetic: yes" / "diabetic: no" / "diabetic : yes" / "diabetic : no" — auto-populated checkbox answers inside screening/risk-calculator sections (e.g., ASCVD risk, fall risk). The same applies to other "<condition>: yes"/"<condition>: no" checkbox patterns when surrounded by other yes/no rows.
+  - Other obvious calculator-output strings such as "unable to calculate", "not calculated", "n/a — missing input".
 
 MATCHING RULES
 - Use the TERM_BANK below (case-insensitive). Also flag close variants (pluralization; hyphen/space/no-space variants).
 - Also flag phrases that match the category patterns above even if not in TERM_BANK.
 - Identity-first disease labels: flag as "likely" when used to define the person (e.g., "the diabetic," "a hypertensive"). Flag as "possible" when ambiguous.
-- "Refused/refuses": flag as "likely" when judgmental; flag as "possible" when neutrally documenting but could use softer language.
+- "Refused/refuses/declined/declines": flag as "likely" only when judgmental framing is present (repeated scolding, scare quotes, "again despite counseling"). Neutral documentation of a single declined vaccine/intervention is NOT bias — do not flag.
 - Substance identity labels (smoker, alcoholic, drug user): flag as "likely" when they define the person.
 - Weight/condition identity labels: flag as "likely" when they define the person by diagnosis or body size.
 - Effort-based language (trying, struggles, suffers): flag as "likely" — distinguish from time-bound actions like "tried metformin."
@@ -156,6 +185,9 @@ OUTPUT
 
 TERM_BANK — LIKELY (clearly stigmatizing; flag as "likely")
 [
+  "admits",
+  "admits to",
+  "admitted to" (only when the object is a behavior/symptom/substance, e.g., "admitted to drinking"; do NOT flag hospital admission senses such as "admitted to the hospital", "admitted to the ICU", "admitted to the floor"),
   "addict",
   "alcoholic",
   "alcohol abuse",
