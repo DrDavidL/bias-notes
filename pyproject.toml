@@ -12,6 +12,7 @@ dependencies = [
     "pandas==2.2.3",
     "python-dotenv==1.2.2",
     "requests==2.33.0",
+    "scipy==1.14.1",
     "streamlit==1.54.0",
 ]
 

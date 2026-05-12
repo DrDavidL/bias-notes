@@ -71,6 +71,20 @@ class BiasReviewUtilsTests(unittest.TestCase):
             ["weight-based identity label", "difficult-patient framing"],
         )
 
+    def test_smoker_variants_normalize_to_canonical_identity_noun(self):
+        # Regression test: prior code mapped these to the literal category
+        # name "smoker identity label", which leaked the category into the
+        # term field. The canonical normalization is the identity noun.
+        for variant in [
+            "Current Smoker",
+            "former smoker",
+            "social smoker",
+            "Tobacco smoker",
+        ]:
+            self.assertEqual(normalize_term(variant), "smoker")
+        # The category name must never be a valid normalized term.
+        self.assertNotEqual(normalize_term("current smoker"), "smoker identity label")
+
     def test_enrich_bias_result_falls_back_when_model_category_is_invalid(self):
         note = "Patient is obese and was told to lose weight."
         result = {

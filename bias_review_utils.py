@@ -18,10 +18,15 @@ _NORMALIZATION_ALIASES = {
     "the diabetic": "diabetic",
     "diabetic patient": "diabetic",
     "sickle cell patient": "sickle cell patient",
-    "current smoker": "smoker identity label",
-    "former smoker": "smoker identity label",
-    "social smoker": "smoker identity label",
-    "tobacco smoker": "smoker identity label",
+    # Smoker variants collapse to the canonical identity noun "smoker" so that
+    # diff/consensus analyses count them as the same term across runs. Prior
+    # to this fix, these mapped to the literal category name "smoker identity
+    # label", which leaked the category into the normalized-term field and
+    # inflated cross-run agreement on a value that was not actually a term.
+    "current smoker": "smoker",
+    "former smoker": "smoker",
+    "social smoker": "smoker",
+    "tobacco smoker": "smoker",
 }
 
 ALLOWED_BIAS_CATEGORIES = [
